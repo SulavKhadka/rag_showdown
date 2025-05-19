@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Pipeline Explorer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left sidebar for history and saved configurations -->
+        <div class="sidebar left-sidebar" role="region" aria-label="Query history">
+            <div class="sidebar-header">
+                <h2 id="history-heading">History</h2>
+                <div class="sidebar-controls">
+                    <button id="clearHistory" class="btn-clear" title="Clear history" aria-label="Clear all history">Clear</button>
+                    <button class="sidebar-toggle left-toggle" title="Toggle history sidebar" aria-label="Toggle history sidebar" aria-expanded="true" aria-controls="historyList">
+                        <i class="fas fa-chevron-left" aria-hidden="true"></i>
+                        <span class="sr-only">Toggle History Sidebar</span>
+                    </button>
+                </div>
+            </div>
+            <div id="historyList" class="history-list" aria-labelledby="history-heading">
+                <!-- History items will be appended here -->
+            </div>
+        </div>
+
+        <!-- Main content area -->
+        <div class="main-content">
+            <!-- Query and results area -->
+            <div class="query-panel">
+                <div class="query-input">
+                    <textarea id="queryInput" placeholder="Enter your query here..."></textarea>
+                    <button id="submitQuery" class="btn-submit">Submit Query</button>
+                </div>
+                
+                <div class="results-container" id="resultsContainer">
+                    <div class="results-loading" id="loadingIndicator">
+                        <div class="spinner"></div>
+                        <p>Processing query...</p>
+                    </div>
+                    
+                    <div class="results-content" id="resultsContent">
+                        <!-- Results will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right sidebar for configuration -->
+        <div class="sidebar right-sidebar" role="region" aria-label="Pipeline configuration">
+            <div class="sidebar-header">
+                <h2 id="config-heading">Configuration</h2>
+                <button class="sidebar-toggle right-toggle" title="Toggle configuration sidebar" aria-label="Toggle configuration sidebar" aria-expanded="true" aria-controls="configPanel">
+                    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                    <span class="sr-only">Toggle Configuration Sidebar</span>
+                </button>
+            </div>
+            <div id="configPanel" class="config-panel" aria-labelledby="config-heading">
+                <div class="config-options">
+                    <div class="preset-selector">
+                        <label for="presetSelect">Pipeline Preset:</label>
+                        <select id="presetSelect" class="preset-select">
+                            <option value="vector_only">Vector Only</option>
+                            <option value="vector_plus_rerank">Vector + Reranker</option>
+                            <option value="vector_plus_bm25">Vector + BM25</option>
+                            <option value="vector_bm25_rerank">Vector + BM25 + Reranker</option>
+                            <option value="vector_bm25_rerank_llm">Vector + BM25 + Reranker + LLM Filter</option>
+                            <option value="full_hybrid">Full Hybrid (All Options)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="custom-config">
+                        <h3>Custom Configuration</h3>
+                        <div class="config-checkboxes">
+                            <div class="config-checkbox">
+                                <input type="checkbox" id="useVector" checked disabled>
+                                <label for="useVector">Vector Search (always enabled)</label>
+                            </div>
+                            <div class="config-checkbox">
+                                <input type="checkbox" id="useBM25">
+                                <label for="useBM25">BM25 Keyword Search</label>
+                            </div>
+                            <div class="config-checkbox">
+                                <input type="checkbox" id="useReranker">
+                                <label for="useReranker">Cross-Encoder Reranker</label>
+                            </div>
+                            <div class="config-checkbox">
+                                <input type="checkbox" id="useLLMReranker">
+                                <label for="useLLMReranker">LLM Relevance Filter</label>
+                            </div>
+                            <div class="config-checkbox">
+                                <input type="checkbox" id="useQueryDecomposition">
+                                <label for="useQueryDecomposition">Query Decomposition</label>
+                            </div>
+                        </div>
+                        
+                        <div class="config-sliders">
+                            <div class="config-slider">
+                                <label for="topK">Top K Documents: <span id="topKValue">5</span></label>
+                                <input type="range" id="topK" min="1" max="20" value="5">
+                            </div>
+                            <div class="config-slider">
+                                <label for="minSimilarity">Min Similarity %: <span id="minSimilarityValue">50</span></label>
+                                <input type="range" id="minSimilarity" min="10" max="90" value="50">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template for history items -->
+    <template id="historyItemTemplate">
+        <div class="history-item">
+            <div class="history-item-query"></div>
+            <div class="history-item-config"></div>
+            <div class="history-item-timestamp"></div>
+        </div>
+    </template>
+
+    <!-- Template for document result -->
+    <template id="documentTemplate">
+        <div class="document">
+            <div class="document-header">
+                <h3 class="document-title"></h3>
+                <div class="document-meta">
+                    <span class="document-source"></span>
+                    <span class="document-similarity"></span>
+                </div>
+            </div>
+            <div class="document-content"></div>
+            <div class="document-authors"></div>
+        </div>
+    </template>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
