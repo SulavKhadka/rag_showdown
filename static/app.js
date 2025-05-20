@@ -15,13 +15,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const submitQueryBtn = document.getElementById('submitQuery');
     const resultsContainer = document.getElementById('resultsContainer');
     const resultsContent = document.getElementById('resultsContent');
+    const sourcesSection = document.getElementById('sourcesSection');
+    const sourcesContainer = document.getElementById('sourcesContainer');
     const loadingIndicator = document.getElementById('loadingIndicator');
     const historyList = document.getElementById('historyList');
     const clearHistoryBtn = document.getElementById('clearHistory');
-    const leftSidebar = document.querySelector('.left-sidebar');
-    const rightSidebar = document.querySelector('.right-sidebar');
-    const leftSidebarToggle = document.querySelector('.left-toggle');
-    const rightSidebarToggle = document.querySelector('.right-toggle');
+    const configSidebar = document.querySelector('.config-sidebar');
+    const configToggle = document.querySelector('.config-toggle');
+    const historyButton = document.getElementById('historyButton');
+    const historyModal = document.getElementById('historyModal');
+    const closeHistoryModal = document.getElementById('closeHistoryModal');
     
     // Templates
     const historyItemTemplate = document.getElementById('historyItemTemplate');
@@ -43,24 +46,41 @@ document.addEventListener('DOMContentLoaded', () => {
     clearHistoryBtn.addEventListener('click', clearHistory);
     
     // Sidebar toggle event listeners
-    leftSidebarToggle.addEventListener('click', toggleLeftSidebar);
-    rightSidebarToggle.addEventListener('click', toggleRightSidebar);
+    configToggle.addEventListener('click', toggleConfigSidebar);
     
-    // Keyboard shortcuts for sidebar toggles
+    // History modal event listeners
+    historyButton.addEventListener('click', openHistoryModal);
+    closeHistoryModal.addEventListener('click', closeHistoryModalHandler);
+    
+    // Allow closing modal by clicking outside of it
+    historyModal.addEventListener('click', event => {
+        if (event.target === historyModal) {
+            closeHistoryModalHandler();
+        }
+    });
+    
+    // Add escape key to close modal
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && historyModal.classList.contains('show')) {
+            closeHistoryModalHandler();
+        }
+    });
+    
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        // Ctrl+B for left sidebar (history)
+        // Ctrl+B for config sidebar
         if (e.ctrlKey && e.key === 'b') {
             e.preventDefault();
-            toggleLeftSidebar();
+            toggleConfigSidebar();
             // Show a temporary tooltip to inform user
-            showShortcutToast('History sidebar toggled (Ctrl+B)');
+            showShortcutToast('Configuration sidebar toggled (Ctrl+B)');
         }
-        // Ctrl+Shift+B for right sidebar (configuration)
-        if (e.ctrlKey && e.shiftKey && e.key === 'B') {
+        // Ctrl+H for history modal
+        if (e.ctrlKey && e.key === 'h') {
             e.preventDefault();
-            toggleRightSidebar();
+            toggleHistoryModal();
             // Show a temporary tooltip to inform user
-            showShortcutToast('Configuration sidebar toggled (Ctrl+Shift+B)');
+            showShortcutToast('History toggled (Ctrl+H)');
         }
     });
     
@@ -91,57 +111,60 @@ document.addEventListener('DOMContentLoaded', () => {
     useLLMRerankerCheckbox.addEventListener('change', updateCustomConfig);
     useQueryDecompositionCheckbox.addEventListener('change', updateCustomConfig);
     
-    // Toggle left sidebar with smooth transition
-    function toggleLeftSidebar() {
-        leftSidebar.classList.toggle('collapsed');
+    // Toggle config sidebar
+    function toggleConfigSidebar() {
+        configSidebar.classList.toggle('collapsed');
         
-        // Update icon based on current state (will be applied after toggle)
-        const isCollapsed = leftSidebar.classList.contains('collapsed');
+        // Update icon based on current state
+        const isCollapsed = configSidebar.classList.contains('collapsed');
         
         // Update ARIA attributes for accessibility
-        leftSidebarToggle.setAttribute('aria-expanded', !isCollapsed);
+        configToggle.setAttribute('aria-expanded', !isCollapsed);
         
         // If we're expanding from a collapsed state, we need to fix the button position
         if (!isCollapsed) {
             // Small delay to let the CSS transition start
             setTimeout(() => {
-                leftSidebarToggle.style.position = '';
-                leftSidebarToggle.style.left = '';
-                leftSidebarToggle.style.top = '';
+                configToggle.style.position = '';
+                configToggle.style.left = '';
+                configToggle.style.top = '';
             }, 50);
         }
         
         saveSidebarState();
     }
     
-    // Toggle right sidebar with smooth transition
-    function toggleRightSidebar() {
-        rightSidebar.classList.toggle('collapsed');
-        
-        // Update icon based on current state (will be applied after toggle)
-        const isCollapsed = rightSidebar.classList.contains('collapsed');
-        
-        // Update ARIA attributes for accessibility
-        rightSidebarToggle.setAttribute('aria-expanded', !isCollapsed);
-        
-        // If we're expanding from a collapsed state, we need to fix the button position
-        if (!isCollapsed) {
-            // Small delay to let the CSS transition start
-            setTimeout(() => {
-                rightSidebarToggle.style.position = '';
-                rightSidebarToggle.style.right = '';
-                rightSidebarToggle.style.top = '';
-            }, 50);
+    // Toggle history modal
+    function toggleHistoryModal() {
+        if (historyModal.classList.contains('show')) {
+            closeHistoryModalHandler();
+        } else {
+            openHistoryModal();
         }
-        
-        saveSidebarState();
+    }
+    
+    // Open history modal
+    function openHistoryModal() {
+        historyModal.classList.add('show');
+        // Set focus to close button for accessibility
+        setTimeout(() => {
+            closeHistoryModal.focus();
+        }, 100);
+    }
+    
+    // Close history modal
+    function closeHistoryModalHandler() {
+        historyModal.classList.remove('show');
+        // Return focus to history button for accessibility
+        setTimeout(() => {
+            historyButton.focus();
+        }, 100);
     }
     
     // Save sidebar state to localStorage
     function saveSidebarState() {
         const state = {
-            leftSidebarCollapsed: leftSidebar.classList.contains('collapsed'),
-            rightSidebarCollapsed: rightSidebar.classList.contains('collapsed')
+            configSidebarCollapsed: configSidebar.classList.contains('collapsed')
         };
         localStorage.setItem('sidebarState', JSON.stringify(state));
     }
@@ -153,24 +176,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (savedState) {
                 const state = JSON.parse(savedState);
                 
-                // Update left sidebar
-                if (state.leftSidebarCollapsed) {
-                    leftSidebar.classList.add('collapsed');
+                // Update config sidebar
+                if (state.configSidebarCollapsed) {
+                    configSidebar.classList.add('collapsed');
                     // Update ARIA attributes
-                    leftSidebarToggle.setAttribute('aria-expanded', 'false');
+                    configToggle.setAttribute('aria-expanded', 'false');
                 } else {
                     // Ensure ARIA attributes are correctly set
-                    leftSidebarToggle.setAttribute('aria-expanded', 'true');
-                }
-                
-                // Update right sidebar
-                if (state.rightSidebarCollapsed) {
-                    rightSidebar.classList.add('collapsed');
-                    // Update ARIA attributes
-                    rightSidebarToggle.setAttribute('aria-expanded', 'false');
-                } else {
-                    // Ensure ARIA attributes are correctly set
-                    rightSidebarToggle.setAttribute('aria-expanded', 'true');
+                    configToggle.setAttribute('aria-expanded', 'true');
                 }
             }
         } catch (error) {
@@ -184,26 +197,23 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTopKValue();
         updateMinSimilarityValue();
         
-        // Auto-collapse sidebars on mobile devices
+        // Auto-collapse sidebar on mobile devices
         if (window.innerWidth <= 768) {
-            if (!leftSidebar.classList.contains('collapsed')) {
-                leftSidebar.classList.add('collapsed');
-            }
-            if (!rightSidebar.classList.contains('collapsed')) {
-                rightSidebar.classList.add('collapsed');
+            if (!configSidebar.classList.contains('collapsed')) {
+                configSidebar.classList.add('collapsed');
             }
         }
+        
+        // Hide sources section initially
+        sourcesSection.style.display = 'none';
     }
     
     // Handle window resize events
     window.addEventListener('resize', () => {
         // Auto-collapse on mobile if switching from desktop to mobile
         if (window.innerWidth <= 768) {
-            if (!leftSidebar.classList.contains('collapsed')) {
-                leftSidebar.classList.add('collapsed');
-            }
-            if (!rightSidebar.classList.contains('collapsed')) {
-                rightSidebar.classList.add('collapsed');
+            if (!configSidebar.classList.contains('collapsed')) {
+                configSidebar.classList.add('collapsed');
             }
         }
     });
@@ -269,9 +279,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Set the preset to custom
         presetSelect.value = 'custom';
-        
-        // Log the change for debugging
-        console.log("Switched to custom configuration");
     }
     
     // Update Top K value display
@@ -295,6 +302,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Show loading indicator
         loadingIndicator.style.display = 'flex';
         resultsContent.innerHTML = '';
+        sourcesSection.style.display = 'none';
+        sourcesContainer.innerHTML = '';
         
         try {
             // Get current configuration
@@ -365,40 +374,59 @@ document.addEventListener('DOMContentLoaded', () => {
     function displayResults(result, query, config) {
         // Clear previous results
         resultsContent.innerHTML = '';
+        sourcesContainer.innerHTML = '';
         
-        // Display the answer from the LLM
-        const answerHtml = formatAnswer(result.answer);
+        // Display the answer from the LLM with markdown rendering
+        const answerHtml = renderMarkdown(result.answer);
         
         const answerElement = document.createElement('div');
         answerElement.className = 'answer-box';
         answerElement.innerHTML = answerHtml;
         resultsContent.appendChild(answerElement);
         
-        // Display source documents
+        // Display source documents in the dedicated sources section
         const documents = result.retrieved_documents;
         
         if (documents && documents.length > 0) {
-            // Create sources header
-            const sourcesHeader = document.createElement('div');
-            sourcesHeader.className = 'sources-header';
-            sourcesHeader.textContent = `Source Documents (${documents.length})`;
-            resultsContent.appendChild(sourcesHeader);
+            // Show the sources section
+            sourcesSection.style.display = 'block';
             
-            // Create documents container
-            const documentsContainer = document.createElement('div');
-            documentsContainer.className = 'documents-container';
+            // Update sources count in title
+            const sourcesTitle = sourcesSection.querySelector('h2');
+            sourcesTitle.textContent = `Sources (${documents.length})`;
             
             // Add each document
             documents.forEach(doc => {
                 const docElement = createDocumentElement(doc);
-                documentsContainer.appendChild(docElement);
+                sourcesContainer.appendChild(docElement);
             });
-            
-            resultsContent.appendChild(documentsContainer);
+        } else {
+            // Hide sources section if no documents
+            sourcesSection.style.display = 'none';
         }
     }
     
-    // Format answer text with paragraph breaks
+    // Render markdown content
+    function renderMarkdown(text) {
+        // Check if marked is available
+        if (typeof marked !== 'undefined') {
+            // Configure marked options
+            marked.setOptions({
+                breaks: true,          // Add <br> on a single line break
+                gfm: true,             // Enable GitHub Flavored Markdown
+                headerIds: true,       // Generate IDs for headings
+                sanitize: false,       // Allow HTML in the markdown (we trust the server)
+                smartLists: true       // Use smarter list behavior than default markdown
+            });
+            
+            return marked.parse(text);
+        } else {
+            // Fallback to simple paragraph formatting if marked is not available
+            return formatAnswer(text);
+        }
+    }
+    
+    // Format answer text with paragraph breaks (legacy fallback)
     function formatAnswer(answerText) {
         // Convert line breaks to paragraphs
         return answerText.split('\n\n')
@@ -460,6 +488,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHistory() {
         historyList.innerHTML = '';
         
+        if (queryHistory.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'history-empty';
+            emptyMessage.textContent = 'No query history yet';
+            historyList.appendChild(emptyMessage);
+            return;
+        }
+        
         queryHistory.forEach(historyItem => {
             const historyElement = createHistoryItemElement(historyItem);
             historyList.appendChild(historyElement);
@@ -493,6 +529,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const historyItemElement = template.querySelector('.history-item');
         historyItemElement.addEventListener('click', () => {
             loadHistoryItem(historyItem);
+            // Close the modal after selection
+            closeHistoryModalHandler();
         });
         
         return template;
@@ -586,4 +624,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return [];
         }
     }
+    
+    // Allow pressing Enter in the textarea to submit the query
+    queryInput.addEventListener('keydown', function(e) {
+        // Check if Enter is pressed without Shift (Shift+Enter allows multiline)
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // Prevent the default action (newline)
+            handleQuerySubmit();
+        }
+    });
 });

@@ -6,54 +6,17 @@
     <title>RAG Pipeline Explorer</title>
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Add marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="app-container">
-        <!-- Left sidebar for history and saved configurations -->
-        <div class="sidebar left-sidebar" role="region" aria-label="Query history">
-            <div class="sidebar-header">
-                <h2 id="history-heading">History</h2>
-                <div class="sidebar-controls">
-                    <button id="clearHistory" class="btn-clear" title="Clear history" aria-label="Clear all history">Clear</button>
-                    <button class="sidebar-toggle left-toggle" title="Toggle history sidebar" aria-label="Toggle history sidebar" aria-expanded="true" aria-controls="historyList">
-                        <i class="fas fa-chevron-left" aria-hidden="true"></i>
-                        <span class="sr-only">Toggle History Sidebar</span>
-                    </button>
-                </div>
-            </div>
-            <div id="historyList" class="history-list" aria-labelledby="history-heading">
-                <!-- History items will be appended here -->
-            </div>
-        </div>
-
-        <!-- Main content area -->
-        <div class="main-content">
-            <!-- Query and results area -->
-            <div class="query-panel">
-                <div class="query-input">
-                    <textarea id="queryInput" placeholder="Enter your query here..."></textarea>
-                    <button id="submitQuery" class="btn-submit">Submit Query</button>
-                </div>
-                
-                <div class="results-container" id="resultsContainer">
-                    <div class="results-loading" id="loadingIndicator">
-                        <div class="spinner"></div>
-                        <p>Processing query...</p>
-                    </div>
-                    
-                    <div class="results-content" id="resultsContent">
-                        <!-- Results will be displayed here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Right sidebar for configuration -->
-        <div class="sidebar right-sidebar" role="region" aria-label="Pipeline configuration">
+        <!-- Left sidebar for configuration (moved from right) -->
+        <div class="sidebar config-sidebar" role="region" aria-label="Pipeline configuration">
             <div class="sidebar-header">
                 <h2 id="config-heading">Configuration</h2>
-                <button class="sidebar-toggle right-toggle" title="Toggle configuration sidebar" aria-label="Toggle configuration sidebar" aria-expanded="true" aria-controls="configPanel">
-                    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <button class="sidebar-toggle config-toggle" title="Toggle configuration sidebar" aria-label="Toggle configuration sidebar" aria-expanded="true" aria-controls="configPanel">
+                    <i class="fas fa-chevron-left" aria-hidden="true"></i>
                     <span class="sr-only">Toggle Configuration Sidebar</span>
                 </button>
             </div>
@@ -108,6 +71,72 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Main content area -->
+        <div class="main-content">
+            <!-- Top navigation bar -->
+            <div class="top-nav">
+                <div class="app-title">
+                    <h1>RAG Pipeline Explorer</h1>
+                </div>
+                <div class="top-controls">
+                    <button id="historyButton" class="top-btn" title="View query history" aria-label="View query history">
+                        <i class="fas fa-history" aria-hidden="true"></i>
+                        <span>History</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Query and results area -->
+            <div class="query-panel">
+                <div class="query-input-container">
+                    <div class="query-field">
+                        <textarea id="queryInput" placeholder="Ask a question about the dataset..."></textarea>
+                        <button id="submitQuery" class="btn-submit">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Submit</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="results-container" id="resultsContainer">
+                    <div class="results-loading" id="loadingIndicator">
+                        <div class="spinner"></div>
+                        <p>Processing query...</p>
+                    </div>
+                    
+                    <div class="results-content" id="resultsContent">
+                        <!-- Results will be displayed here -->
+                    </div>
+                    
+                    <!-- New dedicated sources section -->
+                    <div class="sources-section" id="sourcesSection">
+                        <h2>Sources</h2>
+                        <div class="sources-container" id="sourcesContainer">
+                            <!-- Sources will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- History modal (converted from sidebar) -->
+    <div id="historyModal" class="modal" aria-labelledby="history-modal-heading" aria-modal="true" role="dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="history-modal-heading">Query History</h2>
+                <div class="modal-controls">
+                    <button id="clearHistory" class="btn-clear" title="Clear history" aria-label="Clear all history">Clear</button>
+                    <button id="closeHistoryModal" class="btn-close" title="Close history" aria-label="Close history">
+                        <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="historyList" class="history-list" aria-labelledby="history-modal-heading">
+                <!-- History items will be appended here -->
             </div>
         </div>
     </div>
