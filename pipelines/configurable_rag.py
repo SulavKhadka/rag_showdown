@@ -669,6 +669,11 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         # Check for an override configuration for this request only
         config = kwargs.get('override_config', self.cfg)
         
+        # Validate that at least one retrieval method is enabled
+        if not (config.use_vector or config.use_bm25):
+            self.logger.error("No retrieval methods enabled. At least one of vector or BM25 must be enabled.")
+            raise ValueError("At least one retrieval method (vector or BM25) must be enabled")
+        
         try:
             # Step 1: Prepare queries (decompose if configured)
             if config.use_query_decomposition:

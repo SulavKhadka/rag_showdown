@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const historyList = document.getElementById('historyList');
     const clearHistoryBtn = document.getElementById('clearHistory');
     const configSidebar = document.querySelector('.config-sidebar');
-    const configToggle = document.querySelector('.config-toggle');
     const historyButton = document.getElementById('historyButton');
     const historyModal = document.getElementById('historyModal');
     const closeHistoryModal = document.getElementById('closeHistoryModal');
@@ -43,9 +42,6 @@ document.addEventListener('DOMContentLoaded', () => {
     submitQueryBtn.addEventListener('click', handleQuerySubmit);
     clearHistoryBtn.addEventListener('click', clearHistory);
     
-    // Sidebar toggle event listeners
-    configToggle.addEventListener('click', toggleConfigSidebar);
-    
     // History modal event listeners
     historyButton.addEventListener('click', openHistoryModal);
     closeHistoryModal.addEventListener('click', closeHistoryModalHandler);
@@ -64,15 +60,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Add retrieval method validation
+    useVectorCheckbox.addEventListener('change', validateRetrievalMethods);
+    useBM25Checkbox.addEventListener('change', validateRetrievalMethods);
+    
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        // Ctrl+B for config sidebar
-        if (e.ctrlKey && e.key === 'b') {
-            e.preventDefault();
-            toggleConfigSidebar();
-            // Show a temporary tooltip to inform user
-            showShortcutToast('Configuration sidebar toggled (Ctrl+B)');
-        }
         // Ctrl+H for history modal
         if (e.ctrlKey && e.key === 'h') {
             e.preventDefault();
@@ -81,6 +74,20 @@ document.addEventListener('DOMContentLoaded', () => {
             showShortcutToast('History toggled (Ctrl+H)');
         }
     });
+    
+    // Validate that at least one retrieval method is selected
+    function validateRetrievalMethods() {
+        if (!useVectorCheckbox.checked && !useBM25Checkbox.checked) {
+            // If both are unchecked, force at least one to be checked
+            if (this === useVectorCheckbox) {
+                useBM25Checkbox.checked = true;
+                showShortcutToast('At least one retrieval method must be enabled');
+            } else {
+                useVectorCheckbox.checked = true;
+                showShortcutToast('At least one retrieval method must be enabled');
+            }
+        }
+    }
     
     // Helper function to show a temporary toast notification for keyboard shortcuts
     function showShortcutToast(message) {
@@ -101,29 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             toast.classList.remove('show');
         }, 2000);
-    }
-    
-    // Toggle config sidebar
-    function toggleConfigSidebar() {
-        configSidebar.classList.toggle('collapsed');
-        
-        // Update icon based on current state
-        const isCollapsed = configSidebar.classList.contains('collapsed');
-        
-        // Update ARIA attributes for accessibility
-        configToggle.setAttribute('aria-expanded', !isCollapsed);
-        
-        // If we're expanding from a collapsed state, we need to fix the button position
-        if (!isCollapsed) {
-            // Small delay to let the CSS transition start
-            setTimeout(() => {
-                configToggle.style.position = '';
-                configToggle.style.left = '';
-                configToggle.style.top = '';
-            }, 50);
-        }
-        
-        saveSidebarState();
     }
     
     // Toggle history modal
@@ -153,40 +137,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 100);
     }
     
-    // Save sidebar state to localStorage
+    // Save sidebar state to localStorage - kept for compatibility
     function saveSidebarState() {
-        const state = {
-            configSidebarCollapsed: configSidebar.classList.contains('collapsed')
-        };
-        localStorage.setItem('sidebarState', JSON.stringify(state));
-    }
-    
-    // Load sidebar state from localStorage
-    function loadSidebarState() {
-        try {
-            const savedState = localStorage.getItem('sidebarState');
-            if (savedState) {
-                const state = JSON.parse(savedState);
-                
-                // Update config sidebar
-                if (state.configSidebarCollapsed) {
-                    configSidebar.classList.add('collapsed');
-                    // Update ARIA attributes
-                    configToggle.setAttribute('aria-expanded', 'false');
-                } else {
-                    // Ensure ARIA attributes are correctly set
-                    configToggle.setAttribute('aria-expanded', 'true');
-                }
-            }
-        } catch (error) {
-            console.error('Error loading sidebar state:', error);
-        }
+        // No need to save state anymore as sidebar is always visible
     }
     
     // Initialize UI
     function initializeUI() {
         // Set default values
-        useVectorCheckbox.checked = true; // Vector search is always on
+        useVectorCheckbox.checked = true;
         useBM25Checkbox.checked = false;
         useRerankerCheckbox.checked = false;
         useLLMRerankerCheckbox.checked = false;
@@ -195,26 +154,14 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTopKValue();
         updateMinSimilarityValue();
         
-        // Auto-collapse sidebar on mobile devices
-        if (window.innerWidth <= 768) {
-            if (!configSidebar.classList.contains('collapsed')) {
-                configSidebar.classList.add('collapsed');
-            }
-        }
-        
         // Hide sources section initially
         sourcesSection.style.display = 'none';
     }
     
-    // Handle window resize events
-    window.addEventListener('resize', () => {
-        // Auto-collapse on mobile if switching from desktop to mobile
-        if (window.innerWidth <= 768) {
-            if (!configSidebar.classList.contains('collapsed')) {
-                configSidebar.classList.add('collapsed');
-            }
-        }
-    });
+    // We don't need to load sidebar state anymore since it's always visible
+    function loadSidebarState() {
+        // Function kept for compatibility but doesn't do anything now
+    }
     
     // Update Top K value display
     function updateTopKValue() {
@@ -564,8 +511,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function formatConfigInfo(config) {
         const parts = [];
         
-        // Add enabled features
-        parts.push('Vector'); // Always enabled
+        // Add enabled features based on actual configuration
+        if (config.use_vector) parts.push('Vector');
         if (config.use_bm25) parts.push('BM25');
         if (config.use_reranker) parts.push('Reranker');
         if (config.use_llm_reranker) parts.push('LLM Filter');
@@ -582,12 +529,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set query input
         queryInput.value = historyItem.query;
         
-        // Set configuration checkboxes
-        useVectorCheckbox.checked = historyItem.config.use_vector || true; // Always on
-        useBM25Checkbox.checked = historyItem.config.use_bm25;
-        useRerankerCheckbox.checked = historyItem.config.use_reranker;
-        useLLMRerankerCheckbox.checked = historyItem.config.use_llm_reranker;
-        useQueryDecompositionCheckbox.checked = historyItem.config.use_query_decomposition;
+        // Set configuration checkboxes - using explicit boolean conversion
+        useVectorCheckbox.checked = Boolean(historyItem.config.use_vector);
+        useBM25Checkbox.checked = Boolean(historyItem.config.use_bm25);
+        useRerankerCheckbox.checked = Boolean(historyItem.config.use_reranker);
+        useLLMRerankerCheckbox.checked = Boolean(historyItem.config.use_llm_reranker);
+        useQueryDecompositionCheckbox.checked = Boolean(historyItem.config.use_query_decomposition);
+        
+        // Validate at least one retrieval method is checked
+        if (!useVectorCheckbox.checked && !useBM25Checkbox.checked) {
+            // Default to BM25 if neither is selected (should not happen with backend validation)
+            useBM25Checkbox.checked = true;
+        }
         
         // Set slider values
         topKSlider.value = historyItem.config.top_k;
@@ -641,30 +594,5 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Show tooltips on collapsed sidebar icon hover
-    if (configSidebar.classList.contains('collapsed')) {
-        configToggle.addEventListener('mouseover', function() {
-            const tooltip = document.createElement('div');
-            tooltip.className = 'sidebar-tooltip';
-            tooltip.textContent = 'RAG Pipeline Controls';
-            
-            // Add it to the body to avoid sidebar constraints
-            document.body.appendChild(tooltip);
-            
-            // Position it near the toggle button
-            const rect = configToggle.getBoundingClientRect();
-            tooltip.style.left = (rect.right + 10) + 'px';
-            tooltip.style.top = (rect.top + rect.height / 2 - 10) + 'px';
-            
-            // Store it on the button for removal
-            this.tooltip = tooltip;
-        });
-        
-        configToggle.addEventListener('mouseout', function() {
-            if (this.tooltip) {
-                document.body.removeChild(this.tooltip);
-                this.tooltip = null;
-            }
-        });
-    }
+    // We no longer need tooltips for the sidebar as it's now always visible
 });

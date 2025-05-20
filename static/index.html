@@ -13,16 +13,30 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Left sidebar for configuration (moved from right) -->
+        <!-- Left sidebar for configuration (non-collapsible) -->
         <div class="sidebar config-sidebar" role="region" aria-label="Pipeline configuration">
             <div class="sidebar-header">
-                <h2 id="config-heading">RAG Pipeline Controls</h2>
-                <button class="sidebar-toggle config-toggle" title="Toggle configuration sidebar" aria-label="Toggle configuration sidebar" aria-expanded="true" aria-controls="configPanel">
-                    <i class="fas fa-chevron-left" aria-hidden="true"></i>
-                    <span class="sr-only">Toggle Configuration Sidebar</span>
-                </button>
+                <h2 id="config-heading" class="site-title">RAG Pipeline Explorer</h2>
             </div>
             <div id="configPanel" class="config-panel" aria-labelledby="config-heading">
+                <!-- Query input at the top of sidebar -->
+                <div class="sidebar-query-container">
+                    <div class="config-group-title">Query</div>
+                    <div class="sidebar-query-field">
+                        <textarea id="queryInput" placeholder="Ask a question about the dataset..."></textarea>
+                        <div class="query-buttons">
+                            <button id="historyButton" class="btn-history" title="View query history" aria-label="View query history">
+                                <i class="fas fa-history" aria-hidden="true"></i>
+                                <span>History</span>
+                            </button>
+                            <button id="submitQuery" class="btn-submit">
+                                <i class="fas fa-paper-plane"></i>
+                                <span>Submit</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="config-options">
                     <div class="custom-config">
                         <!-- Retrieval Methods Section -->
@@ -31,10 +45,10 @@
                             <div class="config-checkboxes">
                                 <div class="config-checkbox">
                                     <label class="toggle-switch">
-                                        <input type="checkbox" id="useVector" checked disabled>
+                                        <input type="checkbox" id="useVector" checked>
                                         <span class="toggle-slider"></span>
                                     </label>
-                                    <label for="useVector">Vector Search (always enabled)</label>
+                                    <label for="useVector">Vector Search</label>
                                 </div>
                                 <div class="config-checkbox">
                                     <label class="toggle-switch">
@@ -102,31 +116,8 @@
 
         <!-- Main content area -->
         <div class="main-content">
-            <!-- Top navigation bar -->
-            <div class="top-nav">
-                <div class="app-title">
-                    <h1>RAG Pipeline Explorer</h1>
-                </div>
-                <div class="top-controls">
-                    <button id="historyButton" class="top-btn" title="View query history" aria-label="View query history">
-                        <i class="fas fa-history" aria-hidden="true"></i>
-                        <span>History</span>
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Query and results area -->
-            <div class="query-panel">
-                <div class="query-input-container">
-                    <div class="query-field">
-                        <textarea id="queryInput" placeholder="Ask a question about the dataset..."></textarea>
-                        <button id="submitQuery" class="btn-submit">
-                            <i class="fas fa-paper-plane"></i>
-                            <span>Submit</span>
-                        </button>
-                    </div>
-                </div>
-                
+            <!-- Results area -->
+            <div class="results-panel">
                 <div class="results-container" id="resultsContainer">
                     <div class="results-loading" id="loadingIndicator">
                         <div class="spinner"></div>
@@ -137,7 +128,7 @@
                         <!-- Results will be displayed here -->
                     </div>
                     
-                    <!-- New dedicated sources section -->
+                    <!-- Sources section -->
                     <div class="sources-section" id="sourcesSection">
                         <h2>Sources</h2>
                         <div class="sources-container" id="sourcesContainer">
