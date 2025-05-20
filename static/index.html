@@ -6,6 +6,8 @@
     <title>RAG Pipeline Explorer</title>
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Add Inter font -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <!-- Add marked.js for markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -14,7 +16,7 @@
         <!-- Left sidebar for configuration (moved from right) -->
         <div class="sidebar config-sidebar" role="region" aria-label="Pipeline configuration">
             <div class="sidebar-header">
-                <h2 id="config-heading">Configuration</h2>
+                <h2 id="config-heading">RAG Pipeline Controls</h2>
                 <button class="sidebar-toggle config-toggle" title="Toggle configuration sidebar" aria-label="Toggle configuration sidebar" aria-expanded="true" aria-controls="configPanel">
                     <i class="fas fa-chevron-left" aria-hidden="true"></i>
                     <span class="sr-only">Toggle Configuration Sidebar</span>
@@ -22,51 +24,75 @@
             </div>
             <div id="configPanel" class="config-panel" aria-labelledby="config-heading">
                 <div class="config-options">
-                    <div class="preset-selector">
-                        <label for="presetSelect">Pipeline Preset:</label>
-                        <select id="presetSelect" class="preset-select">
-                            <option value="vector_only">Vector Only</option>
-                            <option value="vector_plus_rerank">Vector + Reranker</option>
-                            <option value="vector_plus_bm25">Vector + BM25</option>
-                            <option value="vector_bm25_rerank">Vector + BM25 + Reranker</option>
-                            <option value="vector_bm25_rerank_llm">Vector + BM25 + Reranker + LLM Filter</option>
-                            <option value="full_hybrid">Full Hybrid (All Options)</option>
-                        </select>
-                    </div>
-                    
                     <div class="custom-config">
-                        <h3>Custom Configuration</h3>
-                        <div class="config-checkboxes">
-                            <div class="config-checkbox">
-                                <input type="checkbox" id="useVector" checked disabled>
-                                <label for="useVector">Vector Search (always enabled)</label>
-                            </div>
-                            <div class="config-checkbox">
-                                <input type="checkbox" id="useBM25">
-                                <label for="useBM25">BM25 Keyword Search</label>
-                            </div>
-                            <div class="config-checkbox">
-                                <input type="checkbox" id="useReranker">
-                                <label for="useReranker">Cross-Encoder Reranker</label>
-                            </div>
-                            <div class="config-checkbox">
-                                <input type="checkbox" id="useLLMReranker">
-                                <label for="useLLMReranker">LLM Relevance Filter</label>
-                            </div>
-                            <div class="config-checkbox">
-                                <input type="checkbox" id="useQueryDecomposition">
-                                <label for="useQueryDecomposition">Query Decomposition</label>
+                        <!-- Retrieval Methods Section -->
+                        <div class="config-group">
+                            <div class="config-group-title">Retrieval Methods</div>
+                            <div class="config-checkboxes">
+                                <div class="config-checkbox">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useVector" checked disabled>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <label for="useVector">Vector Search (always enabled)</label>
+                                </div>
+                                <div class="config-checkbox">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useBM25">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <label for="useBM25">BM25 Keyword Search</label>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="config-sliders">
-                            <div class="config-slider">
-                                <label for="topK">Top K Documents: <span id="topKValue">5</span></label>
-                                <input type="range" id="topK" min="1" max="20" value="5">
+                        <!-- Reranking Methods Section -->
+                        <div class="config-group">
+                            <div class="config-group-title">Reranking Methods</div>
+                            <div class="config-checkboxes">
+                                <div class="config-checkbox">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useReranker">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <label for="useReranker">Cross-Encoder Reranker</label>
+                                </div>
+                                <div class="config-checkbox">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useLLMReranker">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <label for="useLLMReranker">LLM Relevance Filter</label>
+                                </div>
                             </div>
-                            <div class="config-slider">
-                                <label for="minSimilarity">Min Similarity %: <span id="minSimilarityValue">50</span></label>
-                                <input type="range" id="minSimilarity" min="10" max="90" value="50">
+                        </div>
+                        
+                        <!-- Query Processing Section -->
+                        <div class="config-group">
+                            <div class="config-group-title">Query Processing</div>
+                            <div class="config-checkboxes">
+                                <div class="config-checkbox">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useQueryDecomposition">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <label for="useQueryDecomposition">Query Decomposition</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Parameters Section -->
+                        <div class="config-group">
+                            <div class="config-group-title">Parameters</div>
+                            <div class="config-sliders">
+                                <div class="config-slider">
+                                    <label for="topK">Top K Documents: <span id="topKValue">5</span></label>
+                                    <input type="range" id="topK" min="1" max="20" value="5">
+                                </div>
+                                <div class="config-slider">
+                                    <label for="minSimilarity">Min Similarity %: <span id="minSimilarityValue">50</span></label>
+                                    <input type="range" id="minSimilarity" min="10" max="90" value="50">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -154,14 +180,26 @@
     <template id="documentTemplate">
         <div class="document">
             <div class="document-header">
-                <h3 class="document-title"></h3>
-                <div class="document-meta">
-                    <span class="document-source"></span>
-                    <span class="document-similarity"></span>
+                <div class="document-header-content">
+                    <div class="document-title-container">
+                        <h3 class="document-title"></h3>
+                        <div class="document-source-info">
+                            <span class="document-source"></span>
+                            <span class="document-similarity"></span>
+                        </div>
+                    </div>
+                    <div class="document-metadata">
+                        <div class="document-meta document-authors-meta"></div>
+                        <div class="document-meta document-date-meta"></div>
+                    </div>
+                </div>
+                <div class="document-toggle">
+                    <i class="fas fa-chevron-down"></i>
                 </div>
             </div>
-            <div class="document-content"></div>
-            <div class="document-authors"></div>
+            <div class="document-content-wrapper">
+                <div class="document-content"></div>
+            </div>
         </div>
     </template>
 

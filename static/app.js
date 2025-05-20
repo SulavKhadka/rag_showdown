@@ -1,7 +1,6 @@
 // Main application logic for RAG Pipeline Explorer
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
-    const presetSelect = document.getElementById('presetSelect');
     const useVectorCheckbox = document.getElementById('useVector');
     const useBM25Checkbox = document.getElementById('useBM25');
     const useRerankerCheckbox = document.getElementById('useReranker');
@@ -39,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSidebarState();
     
     // Event listeners
-    presetSelect.addEventListener('change', handlePresetChange);
     topKSlider.addEventListener('input', updateTopKValue);
     minSimilaritySlider.addEventListener('input', updateMinSimilarityValue);
     submitQueryBtn.addEventListener('click', handleQuerySubmit);
@@ -104,12 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
             toast.classList.remove('show');
         }, 2000);
     }
-    
-    // Additional checkbox event listeners
-    useBM25Checkbox.addEventListener('change', updateCustomConfig);
-    useRerankerCheckbox.addEventListener('change', updateCustomConfig);
-    useLLMRerankerCheckbox.addEventListener('change', updateCustomConfig);
-    useQueryDecompositionCheckbox.addEventListener('change', updateCustomConfig);
     
     // Toggle config sidebar
     function toggleConfigSidebar() {
@@ -191,9 +183,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Initialize UI based on selected preset
+    // Initialize UI
     function initializeUI() {
-        handlePresetChange();
+        // Set default values
+        useVectorCheckbox.checked = true; // Vector search is always on
+        useBM25Checkbox.checked = false;
+        useRerankerCheckbox.checked = false;
+        useLLMRerankerCheckbox.checked = false;
+        useQueryDecompositionCheckbox.checked = false;
+        
         updateTopKValue();
         updateMinSimilarityValue();
         
@@ -217,69 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-    
-    // Handle preset selection change
-    function handlePresetChange() {
-        const preset = presetSelect.value;
-        
-        // Reset checkboxes
-        useVectorCheckbox.checked = true; // Always true
-        
-        // Set checkbox states based on preset
-        switch(preset) {
-            case 'vector_only':
-                useBM25Checkbox.checked = false;
-                useRerankerCheckbox.checked = false;
-                useLLMRerankerCheckbox.checked = false;
-                useQueryDecompositionCheckbox.checked = false;
-                break;
-            case 'vector_plus_rerank':
-                useBM25Checkbox.checked = false;
-                useRerankerCheckbox.checked = true;
-                useLLMRerankerCheckbox.checked = false;
-                useQueryDecompositionCheckbox.checked = false;
-                break;
-            case 'vector_plus_bm25':
-                useBM25Checkbox.checked = true;
-                useRerankerCheckbox.checked = false;
-                useLLMRerankerCheckbox.checked = false;
-                useQueryDecompositionCheckbox.checked = false;
-                break;
-            case 'vector_bm25_rerank':
-                useBM25Checkbox.checked = true;
-                useRerankerCheckbox.checked = true;
-                useLLMRerankerCheckbox.checked = false;
-                useQueryDecompositionCheckbox.checked = false;
-                break;
-            case 'vector_bm25_rerank_llm':
-                useBM25Checkbox.checked = true;
-                useRerankerCheckbox.checked = true;
-                useLLMRerankerCheckbox.checked = true;
-                useQueryDecompositionCheckbox.checked = false;
-                break;
-            case 'full_hybrid':
-                useBM25Checkbox.checked = true;
-                useRerankerCheckbox.checked = true;
-                useLLMRerankerCheckbox.checked = true;
-                useQueryDecompositionCheckbox.checked = true;
-                break;
-        }
-    }
-    
-    // When custom config is updated, set preset to "custom"
-    function updateCustomConfig() {
-        // Create a custom option if it doesn't exist
-        let customOption = presetSelect.querySelector('option[value="custom"]');
-        if (!customOption) {
-            customOption = document.createElement('option');
-            customOption.value = 'custom';
-            customOption.textContent = 'Custom Configuration';
-            presetSelect.appendChild(customOption);
-        }
-        
-        // Set the preset to custom
-        presetSelect.value = 'custom';
-    }
     
     // Update Top K value display
     function updateTopKValue() {
@@ -330,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get current configuration from UI
     function getCurrentConfig() {
         return {
-            preset: presetSelect.value,
+            preset: "custom", // Always use custom preset since we removed the selector
             use_vector: useVectorCheckbox.checked,
             use_bm25: useBM25Checkbox.checked,
             use_reranker: useRerankerCheckbox.checked,
@@ -400,10 +335,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 const docElement = createDocumentElement(doc);
                 sourcesContainer.appendChild(docElement);
             });
+
+            // Add event listeners for collapsible documents after all are added
+            setupCollapsibleDocuments();
         } else {
             // Hide sources section if no documents
             sourcesSection.style.display = 'none';
         }
+    }
+    
+    // Setup collapsible document cards
+    function setupCollapsibleDocuments() {
+        const documentHeaders = document.querySelectorAll('.document-header');
+        
+        documentHeaders.forEach(header => {
+            header.addEventListener('click', function() {
+                const document = this.closest('.document');
+                document.classList.toggle('document-expanded');
+                
+                // Toggle ARIA attributes for accessibility
+                const isExpanded = document.classList.contains('document-expanded');
+                this.setAttribute('aria-expanded', isExpanded);
+                
+                // Add subtle animation effect using max-height
+                const content = document.querySelector('.document-content-wrapper');
+                
+                if (isExpanded) {
+                    // Set max-height to a large value for expansion
+                    content.style.maxHeight = content.scrollHeight + 'px';
+                } else {
+                    // Set max-height to 0 for collapse
+                    content.style.maxHeight = '0';
+                }
+            });
+        });
     }
     
     // Render markdown content
@@ -435,6 +400,36 @@ document.addEventListener('DOMContentLoaded', () => {
             .join('');
     }
     
+    // Format date function
+    function formatDate(dateString) {
+        if (!dateString) return '';
+        
+        // Try to parse the date
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return '';
+            
+            return date.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        } catch (e) {
+            return '';
+        }
+    }
+    
+    // Truncate authors to show max 5 authors
+    function formatAuthors(authors) {
+        if (!authors || !authors.length) return '';
+        
+        if (authors.length <= 5) {
+            return authors.join(', ');
+        } else {
+            return authors.slice(0, 5).join(', ') + '...';
+        }
+    }
+    
     // Create a document element from a document object
     function createDocumentElement(doc) {
         const template = documentTemplate.content.cloneNode(true);
@@ -442,20 +437,49 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set document title
         template.querySelector('.document-title').textContent = doc.title;
         
-        // Set source and similarity
-        template.querySelector('.document-source').textContent = doc.source;
-        template.querySelector('.document-similarity').textContent = `${Math.round(doc.similarity * 100)}% match`;
+        // Set source with appropriate class
+        const sourceElement = template.querySelector('.document-source');
+        
+        // Determine source type display text
+        let sourceType = 'Source';
+        if (doc.source.includes('vector') && doc.source.includes('bm25')) {
+            sourceType = 'Vector+BM25';
+            sourceElement.classList.add('combined');
+        } else if (doc.source.includes('vector')) {
+            sourceType = 'Vector';
+            sourceElement.classList.add('vector');
+        } else if (doc.source.includes('bm25')) {
+            sourceType = 'BM25';
+            sourceElement.classList.add('bm25');
+        }
+        
+        sourceElement.textContent = sourceType;
+        
+        // Set similarity percentage
+        const similarityPercent = Math.round(doc.similarity * 100);
+        template.querySelector('.document-similarity').textContent = `${similarityPercent}%`;
         
         // Set content
         template.querySelector('.document-content').textContent = doc.abstract || doc.content;
         
-        // Set authors if available
-        const authorsElement = template.querySelector('.document-authors');
+        // Set authors if available (with truncation)
+        const authorsMetaElement = template.querySelector('.document-authors-meta');
         if (doc.authors && doc.authors.length > 0) {
-            authorsElement.textContent = `Authors: ${doc.authors.join(', ')}`;
+            authorsMetaElement.textContent = `Authors: ${formatAuthors(doc.authors)}`;
         } else {
-            authorsElement.style.display = 'none';
+            authorsMetaElement.style.display = 'none';
         }
+        
+        // Set publication date if available
+        const dateMetaElement = template.querySelector('.document-date-meta');
+        if (doc.published) {
+            dateMetaElement.textContent = `Published: ${formatDate(doc.published)}`;
+        } else {
+            dateMetaElement.style.display = 'none';
+        }
+        
+        // Set initial ARIA attributes for accessibility
+        template.querySelector('.document-header').setAttribute('aria-expanded', 'false');
         
         return template;
     }
@@ -540,10 +564,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function formatConfigInfo(config) {
         const parts = [];
         
-        // Add preset name
-        parts.push(formatPresetName(config.preset));
-        
         // Add enabled features
+        parts.push('Vector'); // Always enabled
         if (config.use_bm25) parts.push('BM25');
         if (config.use_reranker) parts.push('Reranker');
         if (config.use_llm_reranker) parts.push('LLM Filter');
@@ -555,28 +577,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return parts.join(' • ');
     }
     
-    // Format preset name for display
-    function formatPresetName(preset) {
-        switch(preset) {
-            case 'vector_only': return 'Vector';
-            case 'vector_plus_rerank': return 'Vector+Rerank';
-            case 'vector_plus_bm25': return 'Vector+BM25';
-            case 'vector_bm25_rerank': return 'V+BM25+Rerank';
-            case 'vector_bm25_rerank_llm': return 'V+BM25+Rerank+LLM';
-            case 'full_hybrid': return 'Full Hybrid';
-            case 'custom': return 'Custom';
-            default: return preset;
-        }
-    }
-    
     // Load a history item
     function loadHistoryItem(historyItem) {
         // Set query input
         queryInput.value = historyItem.query;
         
-        // Set configuration
-        presetSelect.value = historyItem.config.preset;
-        useVectorCheckbox.checked = historyItem.config.use_vector;
+        // Set configuration checkboxes
+        useVectorCheckbox.checked = historyItem.config.use_vector || true; // Always on
         useBM25Checkbox.checked = historyItem.config.use_bm25;
         useRerankerCheckbox.checked = historyItem.config.use_reranker;
         useLLMRerankerCheckbox.checked = historyItem.config.use_llm_reranker;
@@ -633,4 +640,31 @@ document.addEventListener('DOMContentLoaded', () => {
             handleQuerySubmit();
         }
     });
+
+    // Show tooltips on collapsed sidebar icon hover
+    if (configSidebar.classList.contains('collapsed')) {
+        configToggle.addEventListener('mouseover', function() {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'sidebar-tooltip';
+            tooltip.textContent = 'RAG Pipeline Controls';
+            
+            // Add it to the body to avoid sidebar constraints
+            document.body.appendChild(tooltip);
+            
+            // Position it near the toggle button
+            const rect = configToggle.getBoundingClientRect();
+            tooltip.style.left = (rect.right + 10) + 'px';
+            tooltip.style.top = (rect.top + rect.height / 2 - 10) + 'px';
+            
+            // Store it on the button for removal
+            this.tooltip = tooltip;
+        });
+        
+        configToggle.addEventListener('mouseout', function() {
+            if (this.tooltip) {
+                document.body.removeChild(this.tooltip);
+                this.tooltip = null;
+            }
+        });
+    }
 });
