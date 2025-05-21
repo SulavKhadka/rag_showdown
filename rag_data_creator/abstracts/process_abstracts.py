@@ -52,6 +52,7 @@ def main():
         embedding_dim=args.dim,
         model_name=args.model,
         batch_size=args.batch,
+        use_colbert=True,
         logger=logger
     )
     

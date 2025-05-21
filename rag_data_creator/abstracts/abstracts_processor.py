@@ -3,7 +3,11 @@ import sys
 import json
 import logging
 import datetime
-from typing import List, Dict, Tuple, Any, Optional
+import numpy as np
+from typing import List, Dict, Tuple, Any, Optional, Union, Callable
+
+# Import PyLate for ColBERT indexing
+from pylate import indexes, models, retrieve
 
 # Get the absolute path to the rag_data_creator directory
 rag_data_creator_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +24,13 @@ class SQLiteKBProcessor(KBProcessorBase):
     Implementation of KBProcessorBase using SQLite with sqlite-vec extension for scientific abstracts.
     
     This class processes scientific paper abstracts from JSON files and stores them in an SQLite database
-    with vector embeddings for semantic search capabilities.
+    with vector embeddings for semantic search capabilities. It supports dual embedding approaches:
+    
+    1. Regular embeddings using SentenceTransformer models stored in SQLite
+    2. ColBERT embeddings using PyLate and PLAID index for more advanced retrieval
+    
+    The ColBERT integration allows for more advanced token-level late interaction, which can provide
+    more accurate retrieval, especially for longer documents or complex queries.
     """
     
     def __init__(self, 
@@ -29,7 +39,11 @@ class SQLiteKBProcessor(KBProcessorBase):
                  model_name: str = "jinaai/jina-embeddings-v3",
                  max_seq_length: int = 4096,
                  batch_size: int = 100,
-                 logger: Optional[logging.Logger] = None):
+                 logger: Optional[logging.Logger] = None,
+                 use_colbert: bool = False,
+                 colbert_model_name: str = "lightonai/GTE-ModernColBERT-v1",
+                 plaid_index_folder: str = "plaid-index",
+                 plaid_index_name: str = "abstracts_index"):
         """
         Initialize the SQLite knowledge base processor.
         
@@ -42,8 +56,48 @@ class SQLiteKBProcessor(KBProcessorBase):
             logger: Optional logger instance; if not provided, a new one will be created
         """
         self.embedding_dim = embedding_dim
+        
+        # ColBERT configuration
+        self.use_colbert = use_colbert
+        self.colbert_model_name = colbert_model_name
+        self.plaid_index_folder = plaid_index_folder
+        self.plaid_index_name = plaid_index_name
+        self.colbert_model = None
+        self.plaid_index = None
+        
         super().__init__(db_path, model_name, max_seq_length, batch_size, logger)
         self._setup_database()
+        
+        # Initialize ColBERT if enabled
+        if self.use_colbert:
+            self._setup_colbert()
+    
+    def _setup_colbert(self):
+        """
+        Initialize the ColBERT model and PLAID index for efficient retrieval.
+        """
+        self.logger.info(f"Initializing ColBERT model: {self.colbert_model_name}")
+        
+        try:
+            # Initialize the ColBERT model
+            self.colbert_model = models.ColBERT(
+                model_name_or_path=self.colbert_model_name,
+            )
+            
+            # Create the index directory if it doesn't exist
+            os.makedirs(self.plaid_index_folder, exist_ok=True)
+            
+            # Initialize the PLAID index
+            self.plaid_index = indexes.PLAID(
+                index_folder=self.plaid_index_folder,
+                index_name=self.plaid_index_name,
+                override=False,  # Don't override existing index
+            )
+            
+            self.logger.info("ColBERT model and PLAID index initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Error initializing ColBERT: {str(e)}")
+            self.use_colbert = False  # Disable ColBERT if initialization fails
     
     def _setup_database(self):
         """
@@ -164,6 +218,11 @@ class SQLiteKBProcessor(KBProcessorBase):
             'abstract': []
         }
         
+        # For ColBERT, we'll use the same format for now
+        # We could customize this format if needed in the future
+        if self.use_colbert:
+            texts['colbert'] = []
+        
         # For each paper, create a rich text representation for embedding
         for doc in parsed_data:
             # Extract title from metadata context
@@ -177,15 +236,47 @@ class SQLiteKBProcessor(KBProcessorBase):
             # Combine title and content (abstract) for better semantic representation
             rich_text = f"Title: {title}\n\nAbstract: {doc.content}"
             texts['abstract'].append(rich_text)
+            
+            # Use the same format for ColBERT embeddings
+            if self.use_colbert:
+                texts['colbert'].append(rich_text)
         
         # No additional metadata needed
         metadata = {}
         
         return texts, metadata
     
+    def generate_colbert_embeddings(self, texts: List[str], is_query: bool = False) -> List[Any]:
+        """
+        Generate ColBERT embeddings for a list of texts.
+        
+        Args:
+            texts: List of texts to embed
+            is_query: Boolean indicating if the texts are queries or documents
+            
+        Returns:
+            List of ColBERT embeddings (tensor sequences)
+        """
+        if not self.use_colbert or not texts:
+            return []
+        
+        self.logger.debug(f"Generating ColBERT embeddings for {len(texts)} texts")
+        try:
+            embeddings = self.colbert_model.encode(
+                texts,
+                batch_size=min(32, len(texts)),
+                is_query=is_query,
+                show_progress_bar=True
+            )
+            return embeddings
+        except Exception as e:
+            self.logger.error(f"Error generating ColBERT embeddings: {str(e)}")
+            return []
+    
     def _insert_batch(self, batch_data: List[KBDocument], embeddings: Dict[str, List[List[float]]]) -> List[int]:
         """
         Insert a batch of abstract KBDocument objects with embeddings into the database.
+        Also adds documents to ColBERT PLAID index if enabled.
         
         Args:
             batch_data: List of KBDocument objects to insert
@@ -205,6 +296,16 @@ class SQLiteKBProcessor(KBProcessorBase):
         if len(batch_data) != len(abstract_embeddings):
             self.logger.error(f"Mismatch between batch_data length ({len(batch_data)}) and embeddings length ({len(abstract_embeddings)})")
             return []
+        
+        # Prepare ColBERT embeddings if enabled
+        colbert_docs_embeddings = None
+        if self.use_colbert and 'colbert' in embeddings:
+            # Generate ColBERT embeddings for documents
+            colbert_texts = embeddings.get('colbert', [])
+            if colbert_texts:
+                colbert_docs_embeddings = self.generate_colbert_embeddings(
+                    colbert_texts, is_query=False
+                )
         
         # Insert abstracts and their embeddings
         for i, doc in enumerate(batch_data):
@@ -257,8 +358,77 @@ class SQLiteKBProcessor(KBProcessorBase):
         conn.commit()
         conn.close()
         
+        # Add documents to ColBERT PLAID index if enabled
+        if self.use_colbert and self.plaid_index and colbert_docs_embeddings and len(colbert_docs_embeddings) > 0:
+            try:
+                self.logger.info(f"Adding {len(record_ids)} documents to ColBERT PLAID index")
+                
+                # Convert record IDs to strings for PLAID index
+                documents_ids = [str(record_id) for record_id in record_ids]
+                
+                # Add documents to PLAID index
+                self.plaid_index.add_documents(
+                    documents_ids=documents_ids,
+                    documents_embeddings=colbert_docs_embeddings,
+                )
+                
+                self.logger.info(f"Successfully added documents to ColBERT PLAID index")
+            except Exception as e:
+                self.logger.error(f"Error adding documents to ColBERT PLAID index: {str(e)}")
+        
         return record_ids
     
+    def process_source(self, source_path: str) -> List[int]:
+        """
+        Process a single source file and insert its records into the database.
+        Overrides the base class method to add support for ColBERT embeddings.
+        
+        Args:
+            source_path: Path to the source file
+            
+        Returns:
+            List of primary key IDs for the inserted records
+        """
+        self.logger.debug(f"Processing source: {source_path}")
+        
+        try:
+            # Parse the source file into KBDocument objects
+            kb_documents = self._parse_source(source_path)
+            self.logger.debug(f"Parsed {len(kb_documents)} KBDocument objects from source")
+            
+            # Process in batches
+            all_record_ids = []
+            
+            for i in range(0, len(kb_documents), self.batch_size):
+                batch = kb_documents[i:i+self.batch_size]
+                self.logger.debug(f"Processing batch {i//self.batch_size + 1}, size: {len(batch)}")
+                
+                # Prepare texts for embedding from KBDocument objects
+                texts_to_embed, metadata = self._prepare_embeddings(batch)
+                
+                # Generate embeddings for each field
+                embeddings = {}
+                for field_name, texts in texts_to_embed.items():
+                    # For regular embeddings (not colbert), use the regular embedding method
+                    if field_name != 'colbert':
+                        embeddings[field_name] = self.generate_embeddings(texts, text_type="passage")
+                    # For colbert field, we'll let the _insert_batch method handle it directly
+                    # as ColBERT embeddings are special tensor sequences, not just float lists
+                    else:
+                        # Store the texts only, will be embedded in _insert_batch
+                        embeddings[field_name] = texts
+                
+                # Insert batch of KBDocument objects with embeddings
+                record_ids = self._insert_batch(batch, embeddings)
+                all_record_ids.extend(record_ids)
+                
+            return all_record_ids
+            
+        except Exception as e:
+            self.logger.error(f"Error processing source {source_path}: {str(e)}")
+            self.logger.debug("Full exception details:", exc_info=True)
+            return []
+
     def process_abstracts_file(self, file_path: str) -> Dict[str, Any]:
         """
         Process a single abstracts JSON file and insert its contents into the database.
@@ -283,7 +453,8 @@ class SQLiteKBProcessor(KBProcessorBase):
             'file_path': file_path,
             'abstracts_processed': len(record_ids),
             'processing_time_seconds': processing_time,
-            'average_time_per_abstract': processing_time / max(1, len(record_ids))
+            'average_time_per_abstract': processing_time / max(1, len(record_ids)),
+            'colbert_enabled': self.use_colbert
         }
         
         self.logger.info(f"Processed {len(record_ids)} abstracts in {processing_time:.2f} seconds")
