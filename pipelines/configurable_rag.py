@@ -822,11 +822,11 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                         doc_id = doc_ids[i]
                         doc_data = combined_map[doc_id]
                         
-                        # Create ranked result
+                        # Create ranked result - keep original similarity score, not reranker score
                         ranked_results.append({
                             'id': doc_id,
                             'text': ranked_doc['text'],
-                            'score': ranked_doc['score'],
+                            'score': doc_data.get('similarity', 0.5),  # Use original similarity score
                             'source': doc_data['source'],
                             'metadata': metadata_by_id.get(doc_id, {})
                         })
@@ -921,10 +921,9 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                     }
                 }
                 
-                # Only include similarity and rerank_score for non-BM25 results
+                # Only include similarity for non-BM25 results
                 if 'score' in res and res['source'] != 'bm25':
                     formatted_doc['similarity'] = res['score']
-                    formatted_doc['metadata']['rerank_score'] = res['score']
                 formatted_results.append(formatted_doc)
             
             self.logger.info(f"[QueryID: {query_id}] Retrieved {len(formatted_results)} documents")
