@@ -3,11 +3,10 @@ import sys
 import json
 import logging
 import datetime
-import numpy as np
-from typing import List, Dict, Tuple, Any, Optional, Union, Callable
+from typing import List, Dict, Tuple, Any, Optional
 
 # Import PyLate for ColBERT indexing
-from pylate import indexes, models, retrieve
+from pylate import indexes, models
 
 # Get the absolute path to the rag_data_creator directory
 rag_data_creator_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -372,7 +371,7 @@ class SQLiteKBProcessor(KBProcessorBase):
                     documents_embeddings=colbert_docs_embeddings,
                 )
                 
-                self.logger.info(f"Successfully added documents to ColBERT PLAID index")
+                self.logger.info("Successfully added documents to ColBERT PLAID index")
             except Exception as e:
                 self.logger.error(f"Error adding documents to ColBERT PLAID index: {str(e)}")
         

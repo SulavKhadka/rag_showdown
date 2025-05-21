@@ -4,7 +4,7 @@ import sqlite3
 import sqlite_vec
 import struct
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Optional
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 from pydantic import BaseModel

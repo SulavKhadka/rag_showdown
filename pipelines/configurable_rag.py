@@ -10,7 +10,7 @@ import requests
 import threading
 import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Union, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 # Get the absolute path to the project root directory and add to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -486,7 +486,7 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             
         except Exception as e:
             self.logger.error(f"Error in ColBERT retrieval: {str(e)}")
-            self.logger.debug(f"Full exception details:", exc_info=True)
+            self.logger.debug("Full exception details:", exc_info=True)
             return {}
     
     def _vector_retrieve(self, queries: List[str]) -> Dict[int, Dict[str, Any]]:
@@ -1389,7 +1389,6 @@ def main():
     Main function to run the configurable RAG retriever from the command line.
     """
     import argparse
-    from pipelines.config import get_config_by_preset
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run the configurable RAG retriever")
