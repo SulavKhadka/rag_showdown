@@ -71,7 +71,7 @@ class SQLiteKBProcessor(KBProcessorBase):
         # Create vector search table for abstract embeddings
         cursor.execute(f'''
         CREATE VIRTUAL TABLE IF NOT EXISTS vss_abstracts USING vec0(
-            embedding FLOAT[{self.embedding_dim}]
+            embedding FLOAT[{self.embedding_dim}] distance_metric=cosine
         )
         ''')
         

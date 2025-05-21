@@ -7,7 +7,7 @@ This script will ingest abstracts from the dataset file into an SQLite database.
 import os
 import logging
 import argparse
-from rag_data_creator.abstracts_processor import SQLiteKBProcessor
+from abstracts_processor import SQLiteKBProcessor
 
 # Configure logging
 logging.basicConfig(
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description='Process scientific abstracts dataset.')
-    parser.add_argument('--input', '-i', type=str, default='abstracts_dataset_15857.json',
+    parser.add_argument('--input', '-i', type=str, default='/home/bobby/Repos/rag_showdown/rag_data_creator/abstracts/abstracts_dataset_15857.json',
                         help='Path to the input JSON file with abstracts')
     parser.add_argument('--db', '-d', type=str, default='abstracts.db',
                         help='Path to the SQLite database file')
@@ -56,12 +56,12 @@ def main():
     )
     
     # Process the abstracts file
-    # logger.info(f"Starting to process abstracts from {input_path}")
-    # stats = processor.process_abstracts_file(input_path)
+    logger.info(f"Starting to process abstracts from {input_path}")
+    stats = processor.process_abstracts_file(input_path)
     
     # Log summary
-    # logger.info(f"Processing completed: {stats['abstracts_processed']} abstracts in {stats['processing_time_seconds']:.2f} seconds")
-    # logger.info(f"Average time per abstract: {stats['average_time_per_abstract']:.4f} seconds")
+    logger.info(f"Processing completed: {stats['abstracts_processed']} abstracts in {stats['processing_time_seconds']:.2f} seconds")
+    logger.info(f"Average time per abstract: {stats['average_time_per_abstract']:.4f} seconds")
     
     # Example query
     example_query = "quantum computing algorithms"
