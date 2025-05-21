@@ -1,6 +1,6 @@
+import os
 from dataclasses import dataclass
 from typing import Optional
-from secret_keys import OPENROUTER_API_KEY
 
 @dataclass
 class PipelineConfig:
@@ -38,7 +38,7 @@ class PipelineConfig:
     
     # LLM API configuration
     llm_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
-    llm_api_key: Optional[str] = OPENROUTER_API_KEY
+    llm_api_key: Optional[str] = os.environ.get("OPENROUTER_API_KEY")
     llm_model: str = "mistralai/mistral-medium-3"
 
 

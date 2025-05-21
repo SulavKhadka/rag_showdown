@@ -4,6 +4,9 @@ import platform
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import logging
@@ -51,8 +54,8 @@ class PipelineConfigModel(BaseModel):
     use_reranker: Optional[bool] = Field(default=False, description="Use cross-encoder reranker")
     use_llm_reranker: Optional[bool] = Field(default=False, description="Use LLM-based relevance filtering")
     use_query_decomposition: Optional[bool] = Field(default=False, description="Use LLM-based query decomposition")
-    top_k: Optional[int] = Field(default=5, description="Number of documents to retrieve")
-    min_similarity_pct: Optional[float] = Field(default=50.0, description="Vector search filter threshold")
+    top_k: Optional[int] = Field(default=5, description="Number of documents to retrieve", ge=1, le=20)
+    min_similarity_pct: Optional[float] = Field(default=50.0, description="Vector search filter threshold", ge=0.0, le=100.0)
     db_path: Optional[str] = Field(default=DEFAULT_DB_PATH, description="Path to SQLite database")
 
 class QueryRequest(BaseModel):
@@ -91,6 +94,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
     """
     Log query data to a file for later analysis.
@@ -99,6 +107,10 @@ def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
         query_id: Unique identifier for the query
         data: Dictionary containing query, config, and results data
     """
+    if os.environ.get("ENABLE_DETAILED_QUERY_LOGS") != "true":
+        logger.info("Detailed query logging is disabled. Skipping detailed log file creation for query_id: %s", query_id)
+        return
+
     try:
         # Create a timestamped filename
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -218,7 +230,8 @@ async def index():
     return FileResponse("static/index.html")
 
 @app.post("/api/query", response_model=QueryResponse)
-async def process_query(query_request: QueryRequest):
+@limiter.limit("5/minute")
+async def process_query(request: Request, query_request: QueryRequest):
     """
     Process a RAG query with specified configuration.
     """
@@ -283,12 +296,12 @@ async def process_query(query_request: QueryRequest):
         # Log the error for data collection purposes
         error_data = {
             "query": query_request.query,
-            "config": query_request.config.dict(),
+            "config": query_request.config.model_dump(), # Use model_dump() for Pydantic v2
             "error": str(e),
             "error_type": type(e).__name__
         }
         log_query_data(f"{query_id}_error", error_data)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal server error occurred while processing your query.")
 
 @app.get("/api/config/presets", response_model=List[PresetInfo])
 async def get_presets():
@@ -307,14 +320,14 @@ async def get_presets():
     return presets
 
 @app.get("/api/db_status", response_model=DBStatus)
-async def db_status(path: str = DEFAULT_DB_PATH):
-    """Check if the database file exists and return status"""
-    logger.debug(f"Checking database status at: {path}")
-    exists = os.path.exists(path)
-    logger.info(f"Database at {path} exists: {exists}")
+async def db_status():
+    """Check if the default database file exists and return status"""
+    logger.debug(f"Checking database status at: {DEFAULT_DB_PATH}")
+    exists = os.path.exists(DEFAULT_DB_PATH)
+    logger.info(f"Database at {DEFAULT_DB_PATH} exists: {exists}")
     return {
         "exists": exists,
-        "path": path
+        "path": DEFAULT_DB_PATH
     }
 
 def main():
