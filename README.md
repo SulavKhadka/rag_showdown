@@ -106,15 +106,58 @@ python -m rag_data_creator.abstracts.process_abstracts \
     --batch 50
 ```
 
-### API Key Setup
+## Setup and Configuration
 
-For LLM-based features like query decomposition, relevance filtering, and the agent module, you'll need to set up an OpenRouter API key:
+This section covers essential setup steps required after installation, primarily focusing on environment variables that control application behavior and integrations.
 
-1. Create a `secret_keys.py` file in the project root
-2. Add your OpenRouter API key:
-   ```python
-   OPENROUTER_API_KEY = "your_api_key_here"
-   ```
+### API Key Configuration
+
+For LLM-based features such as query decomposition, LLM-based relevance filtering, and the agent module, the application requires an API key from [OpenRouter.ai](https://openrouter.ai/).
+
+This key should be set as an environment variable named `OPENROUTER_API_KEY`. **Do not hardcode your API key directly into the codebase.**
+
+**Setting the Environment Variable:**
+
+*   **Linux/macOS:**
+    Open your terminal and run:
+    ```bash
+    export OPENROUTER_API_KEY='your_actual_openrouter_api_key'
+    ```
+    To make this change permanent, add this line to your shell's configuration file (e.g., `~/.bashrc`, `~/.zshrc`).
+
+*   **Windows (Command Prompt):**
+    ```cmd
+    set OPENROUTER_API_KEY=your_actual_openrouter_api_key
+    ```
+    To set it permanently, you can use the System Properties:
+    1. Search for "environment variables" in the Start Menu.
+    2. Click on "Edit the system environment variables".
+    3. Click the "Environment Variables..." button.
+    4. In the "User variables" or "System variables" section, click "New..."
+    5. Set Variable name to `OPENROUTER_API_KEY` and Variable value to your key.
+    6. Click OK on all dialogs. You may need to restart your command prompt or IDE for the changes to take effect.
+
+Ensure the `OPENROUTER_API_KEY` is correctly set in your environment before running the application to use features relying on the LLM.
+
+### Logging Configuration
+
+For user privacy and to reduce disk usage, detailed logging of query content, full LLM responses, intermediate pipeline steps, and system information to individual JSON files in the `logs/queries/` directory is **disabled by default**. These detailed logs can be useful for debugging and performance analysis.
+
+Standard application logs (e.g., server start, basic query processing info, errors) are still written to the console and/or the main log file (`logs/rag_app.log`) as configured.
+
+To enable detailed query logging, set the following environment variable to `true`:
+
+```bash
+export ENABLE_DETAILED_QUERY_LOGS=true
+```
+
+On Windows, you can use:
+```cmd
+set ENABLE_DETAILED_QUERY_LOGS=true
+```
+Or set it permanently via System Properties as described in the "API Key Configuration" section.
+
+When enabled, detailed JSON logs for each query (or each step like retrieval/generation if logged separately) will be saved in the `logs/queries/` directory.
 
 ## Usage
 
@@ -204,7 +247,7 @@ agent = Agent(
 agent.run()
 ```
 
-## Configuration Options
+## Pipeline Configuration Options
 
 ### Pipeline Presets
 
@@ -250,6 +293,96 @@ config = PipelineConfig(
 )
 ```
 
+## Security
+
+### Dependency Vulnerability Scanning
+
+Project dependencies can sometimes have known security vulnerabilities. It's crucial to regularly check your installed packages against vulnerability databases to ensure your application remains secure. This section provides instructions for using common Python tools to perform these checks.
+
+It is recommended to run these checks periodically, especially before deploying the application or after updating dependencies. If vulnerabilities are found, you should look for updated versions of the affected packages. If a patched version is not immediately available, consider whether the vulnerability impacts your specific usage and explore potential mitigations or alternative packages.
+
+#### Using pip-audit (Recommended)
+
+`pip-audit` is a tool from the Python Packaging Authority (PyPA) that audits your project's dependencies for known vulnerabilities by checking against the Python Packaging Advisory Database (PyPI Advisory Database).
+
+1.  **Install `pip-audit`**:
+    If you don't have it installed, you can install it using pip:
+    ```bash
+    pip install pip-audit
+    ```
+
+2.  **Run the audit**:
+    `pip-audit` automatically checks dependencies listed in `pyproject.toml` (if present and supported for dependency listing) or a `requirements.txt` file. Navigate to your project's root directory and run:
+    ```bash
+    pip-audit
+    ```
+    If your project uses a virtual environment, ensure it is activated so `pip-audit` checks the correct package versions.
+
+#### Using safety
+
+`safety` is another popular tool for checking Python dependencies against a known vulnerability database. It typically requires a `requirements.txt` file.
+
+1.  **Generate `requirements.txt` (if needed)**:
+    If your project uses `pyproject.toml` with a build system like Poetry or PDM, you might need to generate a `requirements.txt` file.
+
+    *   For Poetry:
+        ```bash
+        poetry export -f requirements.txt --output requirements.txt --without-hashes
+        ```
+    *   For PDM:
+        ```bash
+        pdm export -f requirements.txt --output requirements.txt --without-hashes
+        ```
+    *   If you are managing dependencies directly in `pyproject.toml` without a specific build tool's lock file, `pip-audit` might be more straightforward.
+
+2.  **Install `safety`**:
+    ```bash
+    pip install safety
+    ```
+
+3.  **Run the check**:
+    Once you have a `requirements.txt` file, run:
+    ```bash
+    safety check -r requirements.txt
+    ```
+    `safety` also offers options to integrate with CI systems and use API keys for more up-to-date vulnerability data from commercial sources, though the basic check against the open database is free.
+
+Regularly performing these checks helps maintain the security posture of your application.
+
+### Implemented Security Measures
+
+This application incorporates several security best practices:
+
+*   **API Key Management**: The `OPENROUTER_API_KEY` is handled via environment variables, preventing it from being hardcoded in the source.
+*   **Application-Level Rate Limiting**: The API (`/api/query` endpoint) implements rate limiting (e.g., 5 requests per minute) to protect against abuse, using `slowapi`.
+*   **Input Validation**:
+    *   API request bodies are validated using Pydantic models (e.g., `QueryRequest`, `PipelineConfigModel` in `app.py`).
+    *   Specific fields like `top_k` and `min_similarity_pct` have range constraints (e.g., `top_k` between 1-20).
+*   **XSS Protection (Frontend)**:
+    *   User-generated content and document metadata displayed in the frontend UI (e.g., document titles, abstracts, authors) are primarily rendered using `textContent` to prevent HTML injection from data sources.
+    *   Markdown content from the LLM is sanitized using `marked.js` with the `sanitize: true` option before being rendered as HTML.
+*   **Conditional Detailed Logging**: Detailed query logs, which may contain sensitive information, are disabled by default and can only be enabled via the `ENABLE_DETAILED_QUERY_LOGS` environment variable.
+*   **Generic Error Messages**: API endpoints are configured to return generic error messages for server-side exceptions, avoiding leakage of potentially sensitive internal details (e.g., stack traces or specific error strings) to the client. Detailed errors are logged internally.
+*   **Secure Endpoint Design**: The `/api/db_status` endpoint was refactored to only check the status of the predefined `DEFAULT_DB_PATH`, preventing its use for arbitrary file path checks.
+
+### Deployment Environment Security
+
+While the application implements the security measures listed above, the security of the overall deployment environment is the user's responsibility. If deploying this application, consider the following:
+
+*   **Nginx (or other reverse proxy) Configuration**:
+    *   Implement appropriate rate limiting and connection limits.
+    *   Configure security headers (e.g., `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`).
+    *   Ensure SSL/TLS is properly configured for HTTPS.
+    *   Regularly update Nginx to patch vulnerabilities.
+*   **Cloudflare (or similar CDN/WAF service) Utilization**:
+    *   Leverage Web Application Firewall (WAF) capabilities to filter malicious traffic.
+    *   Utilize DDoS protection features.
+    *   Consider using Bot Management features to block unwanted automated traffic.
+*   **Operating System Security**: Ensure the underlying server is hardened and regularly patched.
+*   **Database Security**: If using a more complex database setup than the default SQLite, ensure it is properly secured.
+
+Security is an ongoing process. Regularly review your security configurations, stay updated on best practices, and monitor your application for suspicious activity.
+
 ## Development
 
 ### Project Structure
@@ -264,7 +397,6 @@ rag_showdown/
 ├── rag_data_creator/       # Data preparation tools
 ├── static/                 # Web UI assets
 ├── app.py                  # FastAPI web application
-├── secret_keys.py          # API keys
 └── abstracts.db            # SQLite database with embedded vectors
 ```
 

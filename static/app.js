@@ -397,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 breaks: true,          // Add <br> on a single line break
                 gfm: true,             // Enable GitHub Flavored Markdown
                 headerIds: true,       // Generate IDs for headings
-                sanitize: false,       // Allow HTML in the markdown (we trust the server)
+                sanitize: true,        // Sanitize HTML in the markdown
                 smartLists: true       // Use smarter list behavior than default markdown
             });
             
