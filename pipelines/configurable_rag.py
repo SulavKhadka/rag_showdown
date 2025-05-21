@@ -8,6 +8,8 @@ import sqlite3
 import sqlite_vec
 import requests
 import threading
+import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Union, Optional, Tuple
 
 # Get the absolute path to the project root directory and add to path
@@ -16,6 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import project modules
 from data_processor.kb_retriever import KBRetrieverBase
 from pipelines.config import PipelineConfig, get_config_by_preset
+
+# Create logs directory
+LOGS_DIR = Path("logs/queries")
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Import conditional dependencies
 try:
@@ -105,6 +111,32 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         if (config.use_query_decomposition or config.use_llm_reranker) and not self.llm_api_key:
             self.logger.warning("LLM API key not provided, but LLM-based features are enabled. "
                                "Query decomposition and LLM reranking will not work.")
+    
+    def log_query_details(self, query_id: str, data: Dict[str, Any]) -> None:
+        """
+        Log detailed query information to a file for analysis.
+        
+        Args:
+            query_id: Unique identifier for the query
+            data: Dictionary with query details, pipeline steps, and results
+        """
+        try:
+            # Create a timestamped filename
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"rag_details_{timestamp}_{query_id}.json"
+            filepath = LOGS_DIR / filename
+            
+            # Add timestamp
+            data["timestamp"] = timestamp
+            data["query_id"] = query_id
+            
+            # Write data to file
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+            
+            self.logger.info(f"[QueryID: {query_id}] Detailed query log saved to {filepath}")
+        except Exception as e:
+            self.logger.error(f"[QueryID: {query_id}] Error saving query details: {str(e)}")
     
     def get_db_connection(self):
         """
@@ -423,13 +455,10 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             # Extract text from context objects
             context_texts = []
             for c in contexts:
-                if isinstance(c, dict) and 'text' in c:
-                    context_texts.append(c['text'])
-                else:
-                    context_texts.append(str(c))
+                context_texts.append(f"Title: {c['metadata']['title']}\n\nAbstract: {c['text']}\n\nPublished: {c['metadata']['publication_date']}\n\nAuthors: {c['metadata']['authors']}")
             
             # Format context for LLM prompt
-            context_texts_formatted = '\n\n'.join([f"[{i}] {ctx[:500]}..." for i, ctx in enumerate(context_texts)])
+            context_texts_formatted = '\n\n'.join([f"<document id={i}>\n{ctx}\n</document>" for i, ctx in enumerate(context_texts)])
             
             # Prepare the API request
             headers = {
@@ -527,7 +556,8 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             # Process results
             returned_contexts = {}
             for row in results:
-                doc_id, title, abstract, authors_json, published, source_file, content, similarity = row
+                doc_id, title, abstract, authors_json, published, source_file, content, distance = row
+                similarity = 1 - distance
                 
                 # Skip results that don't meet the similarity threshold
                 if similarity * 100 < self.cfg.min_similarity_pct:
@@ -657,58 +687,123 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             limit: Maximum number of documents to return (overrides config.top_k)
             **kwargs: Additional retrieval parameters
                 - override_config: Optional PipelineConfig to use for this request only
+                - query_id: Optional query identifier for logging
                 
         Returns:
             List of document dictionaries with retrieval scores and metadata
         """
-        self.logger.info(f"Retrieving documents for query: {query[:50]}...")
+        query_id = kwargs.get('query_id', 'unknown')
+        self.logger.info(f"[QueryID: {query_id}] Retrieving documents for query: {query[:50]}...")
         
         # Use the specified limit or fall back to the default top_k
         actual_limit = limit if limit is not None else self.cfg.top_k
+        
+        # For storing detailed pipeline logs
+        pipeline_log = {
+            "config": {k: v for k, v in self.cfg.__dict__.items() if not k.startswith('_')},
+            "query": query,
+            "limit": actual_limit,
+            "models": {
+                "embedding_model": self.cfg.embedding_model,
+                "reranker_model": self.cfg.reranker_model if self.cfg.use_reranker else None,
+                "reranker_model_type": self.cfg.reranker_model_type if self.cfg.use_reranker else None
+            },
+            "device": self.cfg.device,
+            "steps": {}
+        }
         
         # Check for an override configuration for this request only
         config = kwargs.get('override_config', self.cfg)
         
         # Validate that at least one retrieval method is enabled
         if not (config.use_vector or config.use_bm25):
-            self.logger.error("No retrieval methods enabled. At least one of vector or BM25 must be enabled.")
+            self.logger.error(f"[QueryID: {query_id}] No retrieval methods enabled.")
             raise ValueError("At least one retrieval method (vector or BM25) must be enabled")
         
         try:
             # Step 1: Prepare queries (decompose if configured)
+            self.logger.info(f"[QueryID: {query_id}] Step 1: Preparing queries (decomposition: {config.use_query_decomposition})")
+            step_start = datetime.datetime.now()
+            
             if config.use_query_decomposition:
                 # Use LLM to decompose query into multiple queries for better retrieval
                 input_queries = [query] if isinstance(query, str) else [query]
                 queries = self._decompose_query(input_queries)
+                
+                pipeline_log["steps"]["query_decomposition"] = {
+                    "enabled": True,
+                    "decomposed_queries": queries,
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             else:
                 # Use simple query without decomposition
                 queries = {
                     'vector_query_decomposition': [query] if config.use_vector else [],
                     'bm25_query_decomposition': [query] if config.use_bm25 else []
                 }
+                
+                pipeline_log["steps"]["query_decomposition"] = {
+                    "enabled": False,
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             
             # Step 2: Retrieve documents using enabled methods
+            self.logger.info(f"[QueryID: {query_id}] Step 2: Retrieving documents using enabled methods")
             vector_results = {}
             bm25_results = {}
             
             # Vector retrieval
             if config.use_vector and queries['vector_query_decomposition']:
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Performing vector retrieval with {len(queries['vector_query_decomposition'])} queries")
                 vector_results = self._vector_retrieve(queries['vector_query_decomposition'])
+                
+                pipeline_log["steps"]["vector_retrieval"] = {
+                    "enabled": True,
+                    "query_count": len(queries['vector_query_decomposition']),
+                    "result_count": len(vector_results),
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             
             # BM25 retrieval
             if config.use_bm25 and queries['bm25_query_decomposition']:
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Performing BM25 retrieval with {len(queries['bm25_query_decomposition'])} queries")
                 bm25_results = self._bm25_retrieve(queries['bm25_query_decomposition'])
+                
+                pipeline_log["steps"]["bm25_retrieval"] = {
+                    "enabled": True,
+                    "query_count": len(queries['bm25_query_decomposition']),
+                    "result_count": len(bm25_results),
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             
             # Step 3: Combine results from different retrieval methods
+            step_start = datetime.datetime.now()
+            self.logger.info(f"[QueryID: {query_id}] Step 3: Combining results from different retrieval methods")
             combined_map = self._combine_results(vector_results, bm25_results)
+            
+            pipeline_log["steps"]["result_combination"] = {
+                "vector_result_count": len(vector_results),
+                "bm25_result_count": len(bm25_results),
+                "combined_result_count": len(combined_map),
+                "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+            }
             
             # Early return if no results
             if not combined_map:
-                self.logger.warning("No results found by retrieval methods")
+                self.logger.warning(f"[QueryID: {query_id}] No results found by retrieval methods")
                 return []
             
             # Get document metadata
+            step_start = datetime.datetime.now()
             metadata_by_id = self._get_metadata_by_ids(list(combined_map.keys()))
+            
+            pipeline_log["steps"]["metadata_retrieval"] = {
+                "doc_count": len(combined_map.keys()),
+                "metadata_retrieved_count": len(metadata_by_id),
+                "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+            }
             
             # Extract text for reranking
             doc_texts = [item['text'] for item in combined_map.values()]
@@ -716,7 +811,8 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             
             # Step 4: Rerank results if configured
             if config.use_reranker and doc_texts:
-                self.logger.info("Reranking combined results with cross-encoder")
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Step 4: Reranking {len(doc_texts)} results with cross-encoder")
                 reranked = self._classic_rerank(query, doc_texts)
                 
                 # Create a list of ranked results with document IDs
@@ -734,32 +830,77 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                             'source': doc_data['source'],
                             'metadata': metadata_by_id.get(doc_id, {})
                         })
+                
+                pipeline_log["steps"]["reranking"] = {
+                    "enabled": True,
+                    "doc_count": len(doc_texts),
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             else:
                 # Skip reranking, just format results
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Step 4: Skipping reranking (not enabled)")
                 ranked_results = []
                 for doc_id, doc_data in combined_map.items():
-                    ranked_results.append({
+                    result = {
                         'id': doc_id,
                         'text': doc_data['text'],
-                        'score': doc_data.get('similarity', 0.5),  # Use similarity if available
                         'source': doc_data['source'],
                         'metadata': metadata_by_id.get(doc_id, {})
-                    })
+                    }
+                    
+                    # Only include similarity score for vector search results, not for pure BM25
+                    if doc_data['source'] != 'bm25':
+                        result['score'] = doc_data.get('similarity', 0.5)
+                        
+                    ranked_results.append(result)
+                
+                pipeline_log["steps"]["reranking"] = {
+                    "enabled": False,
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             
             # Step 5: Apply LLM relevance filtering if configured
             if config.use_llm_reranker and ranked_results:
-                self.logger.info("Applying LLM relevance filtering")
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Step 5: Applying LLM relevance filtering to {len(ranked_results)} results")
                 relevant_indices = self._llm_rerank(query, ranked_results)
                 filtered_results = [ranked_results[i] for i in relevant_indices]
-                self.logger.info(f"LLM filtering kept {len(filtered_results)}/{len(ranked_results)} results")
+                self.logger.info(f"[QueryID: {query_id}] LLM filtering kept {len(filtered_results)}/{len(ranked_results)} results")
+                
+                pipeline_log["steps"]["llm_filtering"] = {
+                    "enabled": True,
+                    "input_count": len(ranked_results),
+                    "kept_count": len(filtered_results),
+                    "kept_indices": relevant_indices,
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             else:
+                step_start = datetime.datetime.now()
+                self.logger.info(f"[QueryID: {query_id}] Step 5: Skipping LLM relevance filtering (not enabled)")
                 filtered_results = ranked_results
+                
+                pipeline_log["steps"]["llm_filtering"] = {
+                    "enabled": False,
+                    "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+                }
             
             # Sort by score (higher is better)
-            sorted_results = sorted(filtered_results, key=lambda x: x['score'], reverse=True)
+            step_start = datetime.datetime.now()
+            # Use a sorting function that handles missing scores
+            def get_score(item):
+                return item.get('score', 0) if 'score' in item else 0
+            
+            sorted_results = sorted(filtered_results, key=get_score, reverse=True)
             
             # Limit to requested number of results
             final_results = sorted_results[:actual_limit]
+            
+            pipeline_log["steps"]["final_processing"] = {
+                "filtered_count": len(filtered_results),
+                "final_result_count": len(final_results),
+                "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
+            }
             
             # Format results according to expected interface
             formatted_results = []
@@ -773,39 +914,62 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                     'published': metadata.get('publication_date'),
                     'authors': metadata.get('authors', []),
                     'source': res['source'],
-                    'similarity': res['score'],
                     'metadata': {
                         'source': res['source'],
-                        'rerank_score': res['score'],
                         'publication_date': metadata.get('publication_date'),
                         'title': metadata.get('title', 'Unknown')
                     }
                 }
+                
+                # Only include similarity and rerank_score for non-BM25 results
+                if 'score' in res and res['source'] != 'bm25':
+                    formatted_doc['similarity'] = res['score']
+                    formatted_doc['metadata']['rerank_score'] = res['score']
                 formatted_results.append(formatted_doc)
             
-            self.logger.info(f"Retrieved {len(formatted_results)} documents")
+            self.logger.info(f"[QueryID: {query_id}] Retrieved {len(formatted_results)} documents")
+            
+            # Log detailed pipeline information
+            if query_id != 'unknown':
+                pipeline_log["final_results_count"] = len(formatted_results)
+                self.log_query_details(f"{query_id}_retrieval", pipeline_log)
+            
             return formatted_results
             
         except Exception as e:
-            self.logger.error(f"Error retrieving documents: {str(e)}")
-            self.logger.debug("Full exception details:", exc_info=True)
+            self.logger.error(f"[QueryID: {query_id}] Error retrieving documents: {str(e)}")
+            self.logger.debug(f"[QueryID: {query_id}] Full exception details:", exc_info=True)
             return []
     
-    def generate(self, query: str, context_docs: List[Dict[str, Any]]) -> str:
+    def generate(self, query: str, context_docs: List[Dict[str, Any]], query_id: str = 'unknown') -> str:
         """
         Generate an answer using an LLM with the retrieved context.
         
         Args:
             query: The user's query
             context_docs: The retrieved context documents
+            query_id: Optional query identifier for logging
             
         Returns:
             The generated answer
         """
-        self.logger.info("Generating answer from retrieved context")
+        self.logger.info(f"[QueryID: {query_id}] Generating answer from {len(context_docs)} retrieved contexts")
+        
+        generation_log = {
+            "query": query,
+            "context_doc_count": len(context_docs),
+            "context_doc_ids": [doc.get("id") for doc in context_docs],
+            "model": {
+                "llm_model": self.cfg.llm_model,
+                "llm_api_url": self.cfg.llm_api_url
+            },
+            "temperature": 0.3,
+            "max_tokens": 1000,
+            "device": self.cfg.device
+        }
         
         if not self.llm_api_key:
-            self.logger.error("No LLM API key provided")
+            self.logger.error(f"[QueryID: {query_id}] No LLM API key provided")
             return "Error: LLM API key not configured. Please set OPENROUTER_API_KEY environment variable."
         
         try:
@@ -820,12 +984,21 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                 else:
                     authors_text = str(authors)
                 
-                similarity = doc.get("similarity", 0.0)
+                source = doc.get("source", "")
                 
-                context_text += f"Document {i+1} [Similarity: {similarity:.2f}]\n"
+                # Different formatting based on source
+                if source == "bm25":
+                    context_text += f"Document {i+1} [Source: BM25]\n"
+                else:
+                    similarity = doc.get("similarity", 0.0)
+                    context_text += f"Document {i+1} [Similarity: {similarity:.2f}]\n"
+                    
                 context_text += f"Title: {title}\n"
                 context_text += f"Authors: {authors_text}\n"
                 context_text += f"Abstract: {abstract}\n\n"
+            
+            # Save formatted context
+            generation_log["formatted_context"] = context_text
             
             # Create prompt for the LLM
             prompt = f"""You are a research assistant helping to answer scientific questions.
@@ -842,6 +1015,10 @@ QUESTION:
 
 ANSWER:
 """
+            generation_log["prompt"] = prompt
+            
+            start_time = datetime.datetime.now()
+            self.logger.info(f"[QueryID: {query_id}] Sending request to LLM API")
             
             # Call the LLM API
             headers = {
@@ -869,31 +1046,99 @@ ANSWER:
             result = response.json()
             answer = result["choices"][0]["message"]["content"]
             
-            self.logger.info("Successfully generated answer")
+            end_time = datetime.datetime.now()
+            generation_time = (end_time - start_time).total_seconds()
+            
+            generation_log["answer"] = answer
+            generation_log["generation_time_seconds"] = generation_time
+            generation_log["timestamp"] = datetime.datetime.now().isoformat()
+            
+            self.logger.info(f"[QueryID: {query_id}] Successfully generated answer in {generation_time:.2f} seconds")
+            
+            # Log generation details
+            if query_id != 'unknown':
+                self.log_query_details(f"{query_id}_generation", generation_log)
+            
             return answer
             
         except Exception as e:
-            self.logger.error(f"Error generating answer: {str(e)}")
-            self.logger.debug("Full exception details:", exc_info=True)
+            self.logger.error(f"[QueryID: {query_id}] Error generating answer: {str(e)}")
+            self.logger.debug(f"[QueryID: {query_id}] Full exception details:", exc_info=True)
+            
+            # Log error details
+            generation_log["error"] = str(e)
+            generation_log["error_type"] = type(e).__name__
+            
+            if query_id != 'unknown':
+                self.log_query_details(f"{query_id}_generation_error", generation_log)
+            
             return f"Error generating answer: {str(e)}"
     
-    def rag_query(self, query: str) -> Dict[str, Any]:
+    def rag_query(self, query: str, query_id: str = None) -> Dict[str, Any]:
         """
         Process a query through the RAG pipeline by retrieving documents and generating an answer.
         
         Args:
             query: The user's query
+            query_id: Optional query identifier for logging
             
         Returns:
             A dictionary containing the query, retrieved documents, and generated answer
         """
-        self.logger.info(f"Processing RAG query: {query}")
+        # Generate query ID if not provided
+        if query_id is None:
+            query_id = hashlib.md5(f"{query}_{datetime.datetime.now().isoformat()}".encode()).hexdigest()[:10]
+        
+        self.logger.info(f"[QueryID: {query_id}] Processing RAG query: {query}")
+        
+        start_time = datetime.datetime.now()
+        
+        # Log the overall query process including models and device info
+        query_log = {
+            "query": query,
+            "query_id": query_id,
+            "pipeline_config": {k: v for k, v in self.cfg.__dict__.items() if not k.startswith('_')},
+            "start_time": start_time.isoformat(),
+            "models": {
+                "embedding_model": self.cfg.embedding_model,
+                "reranker_model": self.cfg.reranker_model if self.cfg.use_reranker else None,
+                "llm_model": self.cfg.llm_model,
+                "reranker_model_type": self.cfg.reranker_model_type if self.cfg.use_reranker else None
+            },
+            "device": self.cfg.device,
+            "system_info": {
+                "platform": sys.platform,
+                "python_version": sys.version
+            }
+        }
         
         # Step 1: Retrieve relevant documents
-        retrieved_docs = self.retrieve_documents(query, limit=self.cfg.top_k)
+        retrieval_start = datetime.datetime.now()
+        self.logger.info(f"[QueryID: {query_id}] Step 1: Document retrieval")
+        retrieved_docs = self.retrieve_documents(query, limit=self.cfg.top_k, query_id=query_id)
+        retrieval_time = (datetime.datetime.now() - retrieval_start).total_seconds()
+        
+        query_log["document_retrieval"] = {
+            "time_seconds": retrieval_time,
+            "document_count": len(retrieved_docs)
+        }
         
         # Step 2: Generate an answer using the retrieved context
-        answer = self.generate(query, retrieved_docs)
+        generation_start = datetime.datetime.now()
+        self.logger.info(f"[QueryID: {query_id}] Step 2: Answer generation")
+        answer = self.generate(query, retrieved_docs, query_id=query_id)
+        generation_time = (datetime.datetime.now() - generation_start).total_seconds()
+        
+        query_log["answer_generation"] = {
+            "time_seconds": generation_time
+        }
+        
+        # Calculate total processing time
+        end_time = datetime.datetime.now()
+        total_time = (end_time - start_time).total_seconds()
+        
+        query_log["end_time"] = end_time.isoformat()
+        query_log["total_time_seconds"] = total_time
         
         # Return the complete result
         result = {
@@ -901,6 +1146,13 @@ ANSWER:
             "retrieved_documents": retrieved_docs,
             "answer": answer
         }
+        
+        # Log the combined query details
+        query_log["answer"] = answer
+        query_log["retrieved_documents_count"] = len(retrieved_docs)
+        
+        self.logger.info(f"[QueryID: {query_id}] RAG query completed in {total_time:.2f} seconds: {len(retrieved_docs)} docs retrieved")
+        self.log_query_details(query_id, query_log)
         
         return result
 

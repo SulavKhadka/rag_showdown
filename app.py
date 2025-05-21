@@ -1,5 +1,6 @@
 import os
 import json
+import platform
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, Request
@@ -7,6 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import logging
 import uvicorn
+import datetime
+import uuid
+import sys
+import psutil
+from pathlib import Path
 
 from pipelines.configurable_rag import ConfigurableRAGRetriever
 from pipelines.config import PipelineConfig, get_config_by_preset
@@ -17,6 +23,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Create logs directory
+LOGS_DIR = Path("logs")
+QUERY_LOGS_DIR = LOGS_DIR / "queries"
+LOGS_DIR.mkdir(exist_ok=True)
+QUERY_LOGS_DIR.mkdir(exist_ok=True)
+
+# Configure file handler for all logs
+file_handler = logging.FileHandler(LOGS_DIR / "rag_app.log")
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
 
 # Default database path
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'abstracts.db')
@@ -48,7 +65,7 @@ class DocumentModel(BaseModel):
     published: Optional[str]
     authors: List[str]
     source: str
-    similarity: float
+    similarity: Optional[float] = None
     metadata: Dict[str, Any]
 
 class QueryResponse(BaseModel):
@@ -71,6 +88,43 @@ app = FastAPI(
     description="API for configurable RAG pipeline exploration",
     version="1.0.0"
 )
+
+def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
+    """
+    Log query data to a file for later analysis.
+    
+    Args:
+        query_id: Unique identifier for the query
+        data: Dictionary containing query, config, and results data
+    """
+    try:
+        # Create a timestamped filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{query_id}.json"
+        filepath = QUERY_LOGS_DIR / filename
+        
+        # Add timestamp to data
+        data["timestamp"] = timestamp
+        data["query_id"] = query_id
+        
+        # Add system information
+        data["system_info"] = {
+            "platform": platform.platform(),
+            "python_version": platform.python_version(),
+            "processor": platform.processor(),
+            "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+            "memory_available_gb": round(psutil.virtual_memory().available / (1024**3), 2),
+            "cpu_count": psutil.cpu_count(logical=False),
+            "logical_cpu_count": psutil.cpu_count(logical=True)
+        }
+        
+        # Write data to file
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2, default=str)
+        
+        logger.info(f"Query data saved to {filepath}")
+    except Exception as e:
+        logger.error(f"Error saving query data: {str(e)}")
 
 def get_pipeline(config_dict: Dict[str, Any]) -> ConfigurableRAGRetriever:
     """
@@ -100,8 +154,10 @@ def get_pipeline(config_dict: Dict[str, Any]) -> ConfigurableRAGRetriever:
     else:
         # Use a predefined preset as the base
         config = get_config_by_preset(preset)
+        logger.info(f"Using preset configuration: {preset}")
     
     # Override with custom settings
+    logger.debug(f"Applying custom settings to configuration")
     if config_dict.get('use_vector') is not None:
         config.use_vector = config_dict['use_vector']
     if config_dict.get('use_bm25') is not None:
@@ -148,28 +204,77 @@ async def process_query(query_request: QueryRequest):
     """
     Process a RAG query with specified configuration.
     """
+    query_id = str(uuid.uuid4())
+    logger.info(f"[QueryID: {query_id}] Processing new query: '{query_request.query[:50]}...'")
+    
     try:
         query = query_request.query
         if not query:
+            logger.warning(f"[QueryID: {query_id}] Empty query received")
             raise HTTPException(status_code=400, detail="No query provided")
         
         config = query_request.config.dict()
+        logger.info(f"[QueryID: {query_id}] Using configuration preset: {config.get('preset')}")
+        logger.debug(f"[QueryID: {query_id}] Configuration details: {config}")
         
         # Get or create pipeline with the specified configuration
         pipeline = get_pipeline(config)
         
-        # Process the query
-        result = pipeline.rag_query(query)
+        start_time = datetime.datetime.now()
+        
+        # Process the query - pass the query_id to the pipeline
+        logger.info(f"[QueryID: {query_id}] Executing RAG pipeline")
+        result = pipeline.rag_query(query, query_id=query_id)
+        
+        end_time = datetime.datetime.now()
+        processing_time = (end_time - start_time).total_seconds()
+        logger.info(f"[QueryID: {query_id}] Query processed in {processing_time:.2f} seconds")
+        
+        # Log details about retrieved documents
+        doc_count = len(result.get("retrieved_documents", []))
+        logger.info(f"[QueryID: {query_id}] Retrieved {doc_count} documents")
+        
+        # Get pipeline configuration for tracking model information
+        pipeline_config = pipeline.cfg
+        
+        # Save query data for analysis
+        query_data = {
+            "query": query,
+            "config": config,
+            "models": {
+                "embedding_model": pipeline_config.embedding_model,
+                "reranker_model": pipeline_config.reranker_model if pipeline_config.use_reranker else None,
+                "llm_model": pipeline_config.llm_model,
+                "reranker_model_type": pipeline_config.reranker_model_type if pipeline_config.use_reranker else None
+            },
+            "device": pipeline_config.device,
+            "result": {
+                "answer": result.get("answer", ""),
+                "retrieved_documents_count": doc_count,
+                "retrieved_documents": result.get("retrieved_documents", [])
+            },
+            "processing_time": processing_time
+        }
+        log_query_data(query_id, query_data)
         
         return result
     
     except Exception as e:
-        logger.exception("Error processing query")
+        logger.exception(f"[QueryID: {query_id}] Error processing query")
+        # Log the error for data collection purposes
+        error_data = {
+            "query": query_request.query,
+            "config": query_request.config.dict(),
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        log_query_data(f"{query_id}_error", error_data)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/config/presets", response_model=List[PresetInfo])
 async def get_presets():
     """Get available presets"""
+    logger.debug("Getting available presets")
     presets = [
         {"value": "vector_only", "name": "Vector Only", "description": "Simple vector retrieval only."},
         {"value": "vector_plus_rerank", "name": "Vector + Reranker", "description": "Vector retrieval with cross-encoder reranking."},
@@ -183,7 +288,9 @@ async def get_presets():
 @app.get("/api/db_status", response_model=DBStatus)
 async def db_status(path: str = DEFAULT_DB_PATH):
     """Check if the database file exists and return status"""
+    logger.debug(f"Checking database status at: {path}")
     exists = os.path.exists(path)
+    logger.info(f"Database at {path} exists: {exists}")
     return {
         "exists": exists,
         "path": path

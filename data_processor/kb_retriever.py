@@ -79,7 +79,7 @@ class KBRetrieverBase(ABC):
             List of float values representing the query embedding
         """
         self.logger.debug(f"Generating embedding for query: {query[:50]}...")
-        embedding = self.model.encode(query, convert_to_tensor=False)
+        embedding = self.model.encode(query, task="retrieval.query", convert_to_tensor=False)
         return embedding.tolist()
     
     def serialize_embedding(self, embedding: List[float]) -> bytes:

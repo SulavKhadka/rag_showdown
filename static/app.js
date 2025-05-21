@@ -154,8 +154,12 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTopKValue();
         updateMinSimilarityValue();
         
-        // Hide sources section initially
-        sourcesSection.style.display = 'none';
+        // Initialize sources section with minimum height
+        sourcesContainer.innerHTML = '<div class="no-sources-message">Submit a query to see sources</div>';
+        sourcesSection.style.display = 'block';
+        
+        // Call layout adjustment on initial load
+        setTimeout(adjustLayoutHeights, 100);
     }
     
     // We don't need to load sidebar state anymore since it's always visible
@@ -254,17 +258,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Display query results in the UI
     function displayResults(result, query, config) {
-        // Clear previous results
-        resultsContent.innerHTML = '';
-        sourcesContainer.innerHTML = '';
-        
-        // Display the answer from the LLM with markdown rendering
-        const answerHtml = renderMarkdown(result.answer);
-        
-        const answerElement = document.createElement('div');
-        answerElement.className = 'answer-box';
-        answerElement.innerHTML = answerHtml;
-        resultsContent.appendChild(answerElement);
+    // Clear the results content
+    resultsContent.innerHTML = '';
+    sourcesContainer.innerHTML = '';
+    
+    // Display the answer from the LLM with markdown rendering
+    const answerHtml = renderMarkdown(result.answer);
+    
+    const answerElement = document.createElement('div');
+    answerElement.className = 'answer-box';
+    answerElement.innerHTML = answerHtml;
+    resultsContent.appendChild(answerElement);
+    
+    // After displaying the answer, adjust layout heights
+    adjustLayoutHeights();
         
         // Display source documents in the dedicated sources section
         const documents = result.retrieved_documents;
@@ -310,6 +317,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isExpanded) {
                     // Set max-height to a large value for expansion
                     content.style.maxHeight = content.scrollHeight + 'px';
+                    
+                    // Re-adjust layout heights when a document is expanded
+                    setTimeout(adjustLayoutHeights, 50); // Small delay to let content render
                 } else {
                     // Set max-height to 0 for collapse
                     content.style.maxHeight = '0';
@@ -353,6 +363,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Try to parse the date
         try {
+            // Handle custom date format with underscore (e.g., "2024-06-26_10:07:57")
+            if (dateString.includes('_')) {
+                // Replace underscore with space or 'T' to make it ISO compatible
+                dateString = dateString.replace('_', 'T');
+            }
+            
             const date = new Date(dateString);
             if (isNaN(date.getTime())) return '';
             
@@ -362,6 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 day: 'numeric'
             });
         } catch (e) {
+            console.error("Error formatting date:", e, dateString);
             return '';
         }
     }
@@ -402,9 +419,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         sourceElement.textContent = sourceType;
         
-        // Set similarity percentage
-        const similarityPercent = Math.round(doc.similarity * 100);
-        template.querySelector('.document-similarity').textContent = `${similarityPercent}%`;
+        // Set similarity percentage, but hide it for BM25-only results
+        const similarityElement = template.querySelector('.document-similarity');
+        if (doc.source === 'bm25') {
+            similarityElement.style.display = 'none';
+        } else {
+            const similarityPercent = Math.round(doc.similarity * 100);
+            similarityElement.textContent = `${similarityPercent}%`;
+        }
         
         // Set content
         template.querySelector('.document-content').textContent = doc.abstract || doc.content;
@@ -594,5 +616,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Add this new function to adjust layout heights 
+function adjustLayoutHeights() {
+    const resultsContent = document.getElementById('resultsContent');
+    const answerBox = document.querySelector('.answer-box');
+    const sourcesSection = document.getElementById('sourcesSection');
+    
+    if (!sourcesSection) return;
+    
+    // Get the viewport height
+    const viewportHeight = window.innerHeight;
+    const maxAnswerHeight = viewportHeight * 0.75; // 75% of viewport height
+    const minSourcesHeight = viewportHeight * 0.25; // 25% of viewport height
+    
+    // If no answer box yet (initial state or error), give minimum height to sources
+    if (!answerBox) {
+        sourcesSection.style.height = `${minSourcesHeight}px`;
+        return;
+    }
+    
+    // Get the actual content height of the answer
+    const answerHeight = answerBox.scrollHeight;
+    
+    // Adjust heights based on content
+    if (answerHeight < maxAnswerHeight) {
+        // If answer is smaller than max allowed, let it take its natural height
+        resultsContent.style.height = 'auto';
+        resultsContent.style.maxHeight = `${maxAnswerHeight}px`;
+        
+        // Give the remaining space to sources, but ensure at least minSourcesHeight
+        const remainingHeight = Math.max(viewportHeight - answerHeight - 100, minSourcesHeight);
+        sourcesSection.style.height = `${remainingHeight}px`;
+    } else {
+        // If answer would exceed max height, cap it and ensure sources gets its minimum
+        resultsContent.style.height = `${maxAnswerHeight}px`;
+        sourcesSection.style.height = `${minSourcesHeight}px`;
+    }
+    }
+
+    // Add window resize event listener to adjust heights when window is resized
+    window.addEventListener('resize', adjustLayoutHeights);
+
     // We no longer need tooltips for the sidebar as it's now always visible
+
+    
 });

@@ -508,6 +508,7 @@ input:disabled + .toggle-slider {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    height: 100%;
 }
 
 .results-loading {
@@ -560,6 +561,8 @@ input:disabled + .toggle-slider {
     padding: 16px; /* Updated padding */
     overflow-y: auto;
     flex: 1;
+    max-height: 75vh; /* Maximum height as 75% of viewport height */
+    min-height: 200px; /* Minimum height */
 }
 
 /* Answer box - simplified to remove blue styling */
@@ -661,9 +664,11 @@ input:disabled + .toggle-slider {
     padding: 16px; /* Updated padding */
     border-top: 1px solid #E2E8F0; /* Updated border color */
     background-color: #F8FAFC; /* Updated background color */
-    max-height: 300px;
+    min-height: 25vh; /* Minimum height as 25% of viewport height */
+    max-height: 75vh; /* Maximum height as 75% of viewport height */
     overflow-y: auto;
-    transition: max-height 0.3s ease;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 
 .sources-section h2 {
@@ -677,6 +682,13 @@ input:disabled + .toggle-slider {
     display: flex;
     flex-direction: column;
     gap: 12px; /* Updated spacing */
+}
+
+.no-sources-message {
+    color: #64748B;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
 }
 
 /* Document styling */
@@ -832,7 +844,8 @@ input:disabled + .toggle-slider {
     }
     
     .sources-section {
-        max-height: 250px;
+        min-height: 25vh;
+        max-height: 50vh;
     }
 }
 
@@ -852,7 +865,8 @@ input:disabled + .toggle-slider {
     }
     
     .sources-section {
-        max-height: 200px;
+        min-height: 25vh;
+        max-height: 40vh;
     }
     
     .document-header,
