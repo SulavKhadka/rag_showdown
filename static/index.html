@@ -45,10 +45,20 @@
                             <div class="config-checkboxes">
                                 <div class="config-checkbox">
                                     <label class="toggle-switch">
-                                        <input type="checkbox" id="useVector" checked>
+                                        <input type="checkbox" id="useVectorRetrieval" checked>
                                         <span class="toggle-slider"></span>
                                     </label>
-                                    <label for="useVector">Vector Search</label>
+                                    <label for="useVectorRetrieval">Vector Retrieval</label>
+                                </div>
+                                <!-- Vector method selection (only visible when Vector Retrieval is enabled) -->
+                                <div class="config-subcategory" id="vectorMethodSelection">
+                                    <div class="segmented-control">
+                                        <input type="radio" id="singleVector" name="vectorMethod" value="standard" checked>
+                                        <label for="singleVector">Single</label>
+                                        <input type="radio" id="multiVector" name="vectorMethod" value="colbert">
+                                        <label for="multiVector">Multi</label>
+                                        <span class="segmented-control-slider"></span>
+                                    </div>
                                 </div>
                                 <div class="config-checkbox">
                                     <label class="toggle-switch">

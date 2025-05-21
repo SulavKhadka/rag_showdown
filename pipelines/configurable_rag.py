@@ -27,6 +27,7 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 try:
     import bm25s
     import rerankers
+    from pylate import models, indexes, retrieve
 except ImportError:
     pass  # Will be handled during actual usage
 
@@ -69,11 +70,18 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
     
     This class implements a retrieval approach that can:
     1. Optionally decompose queries into multiple sub-queries 
-    2. Retrieve documents using vector similarity, BM25, or both
+    2. Retrieve documents using one of multiple methods:
+       - Standard vector similarity with dense embeddings
+       - BM25 keyword-based search
+       - ColBERT late-interaction model using PLAID index
     3. Optionally rerank results using cross-encoder and/or LLM filtering
     4. Generate answers based on the retrieved context
     
     The specific behavior is controlled by the provided PipelineConfig.
+    
+    ColBERT retrieval uses the PyLate library to access a pre-built PLAID index,
+    offering more contextual understanding through token-level interactions
+    compared to traditional dense retrieval methods.
     """
     
     def __init__(
@@ -99,10 +107,14 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         # Initialize locks for thread safety
         self._reranker_lock = threading.Lock()
         self._bm25_lock = threading.Lock()
+        self._colbert_lock = threading.Lock()
         
         # Lazy-loaded components
         self._reranker = None
         self._bm25 = None
+        self._colbert_model = None
+        self._colbert_index = None
+        self._colbert_retriever = None
         
         # Set up LLM API key
         self.llm_api_key = config.llm_api_key
@@ -111,6 +123,15 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         if (config.use_query_decomposition or config.use_llm_reranker) and not self.llm_api_key:
             self.logger.warning("LLM API key not provided, but LLM-based features are enabled. "
                                "Query decomposition and LLM reranking will not work.")
+        
+        # For backward compatibility, if vector_retrieval_method is not set, infer it from use_vector and use_colbert
+        if not hasattr(config, 'vector_retrieval_method') or not config.vector_retrieval_method:
+            if config.use_colbert:
+                config.vector_retrieval_method = "colbert"
+            elif config.use_vector:
+                config.vector_retrieval_method = "standard"
+            else:
+                config.vector_retrieval_method = "none"
     
     def log_query_details(self, query_id: str, data: Dict[str, Any]) -> None:
         """
@@ -180,6 +201,51 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
                         raise
         
         return self._reranker
+    
+    def _ensure_colbert(self) -> Tuple[Any, Any, Any]:
+        """
+        Lazily initialize the ColBERT model and PLAID index when needed.
+        
+        Returns:
+            Tuple of (colbert_model, colbert_index, colbert_retriever)
+        """
+        # Only initialize if needed and not already initialized
+        if self.cfg.use_colbert and self._colbert_model is None:
+            with self._colbert_lock:
+                # Check again inside lock to prevent race conditions
+                if self._colbert_model is None:
+                    try:
+                        self.logger.info(f"Initializing ColBERT model: {self.cfg.colbert_model_name}")
+                        
+                        # Initialize ColBERT model
+                        colbert_model = models.ColBERT(
+                            model_name_or_path=self.cfg.colbert_model_name,
+                            device=self.cfg.device
+                        )
+                        
+                        # Initialize PLAID index
+                        index_path = os.path.join(self.cfg.plaid_index_folder, self.cfg.plaid_index_name)
+                        self.logger.info(f"Loading PLAID index from {index_path}")
+                        
+                        plaid_index = indexes.PLAID(
+                            index_folder=self.cfg.plaid_index_folder,
+                            index_name=self.cfg.plaid_index_name,
+                            override=False  # Don't override existing index
+                        )
+                        
+                        # Initialize retriever
+                        colbert_retriever = retrieve.ColBERT(index=plaid_index)
+                        
+                        self._colbert_model = colbert_model
+                        self._colbert_index = plaid_index
+                        self._colbert_retriever = colbert_retriever
+                        self.logger.info("ColBERT model and PLAID index initialized successfully")
+                        
+                    except Exception as e:
+                        self.logger.error(f"Failed to initialize ColBERT: {str(e)}")
+                        raise
+        
+        return self._colbert_model, self._colbert_index, self._colbert_retriever
     
     def _ensure_bm25(self) -> Tuple[Any, Dict[str, int], List[str]]:
         """
@@ -310,9 +376,9 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         
         return decomposed_queries
     
-    def _vector_retrieve(self, queries: List[str]) -> Dict[int, Dict[str, Any]]:
+    def _colbert_retrieve(self, queries: List[str]) -> Dict[int, Dict[str, Any]]:
         """
-        Retrieve documents using vector similarity search.
+        Retrieve documents using ColBERT and the PLAID index.
         
         Args:
             queries: List of query strings
@@ -320,7 +386,143 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         Returns:
             Dictionary mapping document IDs to document data
         """
-        self.logger.info(f"Performing vector retrieval for {len(queries)} queries")
+        self.logger.info(f"Performing ColBERT retrieval for {len(queries)} queries")
+        
+        combined_results = {}
+        
+        try:
+            # Ensure ColBERT is initialized
+            colbert_model, colbert_index, colbert_retriever = self._ensure_colbert()
+            
+            # Generate ColBERT query embeddings
+            self.logger.info(f"Encoding {len(queries)} queries using ColBERT model")
+            queries_embeddings = colbert_model.encode(
+                queries,
+                batch_size=8,
+                is_query=True,
+                show_progress_bar=False
+            )
+            
+            # Retrieve top-k documents for each query
+            self.logger.info(f"Retrieving top-{self.cfg.top_k} documents for each query using PLAID index")
+            retrieval_results = colbert_retriever.retrieve(
+                queries_embeddings=queries_embeddings,
+                k=self.cfg.top_k
+            )
+            
+            # Process results
+            for query_idx, results in enumerate(retrieval_results):
+                query = queries[query_idx]
+                self.logger.debug(f"ColBERT search for query {query_idx+1}/{len(queries)}: '{query[:30]}...'")
+                
+                # Map PLAID document IDs to database IDs and add to results
+                for result in results:
+                    doc_id = result["id"]
+                    score = result["score"]
+                    
+                    # Convert PLAID doc ID to integer for database lookup
+                    try:
+                        # Assuming PLAID uses document IDs that can be converted to integers
+                        db_doc_id = int(doc_id)
+                        
+                        # Normalize score to 0-1 range (ColBERT scores are typically >0)
+                        # Higher is better, like cosine similarity
+                        similarity = min(1.0, score / 20.0)  # Normalize to 0-1 range
+                        
+                        # Skip results that don't meet the similarity threshold
+                        if similarity * 100 < self.cfg.min_similarity_pct:
+                            continue
+                            
+                        # Add to results if not already present or with higher score
+                        if db_doc_id not in combined_results or combined_results[db_doc_id]['similarity'] < similarity:
+                            # We'll fill in actual content in the next step
+                            combined_results[db_doc_id] = {
+                                'source': 'colbert',
+                                'similarity': similarity
+                            }
+                    except ValueError:
+                        self.logger.warning(f"Could not convert ColBERT document ID '{doc_id}' to integer")
+                
+                self.logger.info(f"ColBERT search returned {len(results)} results for query {query_idx+1}/{len(queries)}")
+            
+            # Fetch document contents for all retrieved IDs
+            if combined_results:
+                self.logger.info(f"Fetching content for {len(combined_results)} documents")
+                doc_ids = list(combined_results.keys())
+                
+                # Get database connection
+                conn = self.get_db_connection()
+                cursor = conn.cursor()
+                
+                # Create comma-separated string of IDs for query
+                ids_str = ','.join([str(i) for i in doc_ids])
+                
+                # Fetch document content from database
+                query = f"SELECT id, title, abstract, authors, published FROM abstracts WHERE id IN ({ids_str})"
+                cursor.execute(query)
+                results = cursor.fetchall()
+                
+                # Add content to results
+                for row in results:
+                    doc_id, title, abstract, authors_json, published = row
+                    
+                    # Parse authors if available
+                    try:
+                        authors = json.loads(authors_json) if authors_json else []
+                    except json.JSONDecodeError:
+                        authors = []
+                        
+                    # Update the result with content
+                    combined_results[doc_id].update({
+                        'text': abstract,
+                        'title': title,
+                        'authors': authors,
+                        'published': published
+                    })
+                
+                conn.close()
+            
+            return combined_results
+            
+        except Exception as e:
+            self.logger.error(f"Error in ColBERT retrieval: {str(e)}")
+            self.logger.debug(f"Full exception details:", exc_info=True)
+            return {}
+    
+    def _vector_retrieve(self, queries: List[str]) -> Dict[int, Dict[str, Any]]:
+        """
+        Retrieve documents using vector similarity search or ColBERT based on configuration.
+        
+        Args:
+            queries: List of query strings
+            
+        Returns:
+            Dictionary mapping document IDs to document data
+        """
+        # Determine which vector retrieval method to use
+        vector_method = getattr(self.cfg, 'vector_retrieval_method', None)
+        
+        # If vector_retrieval_method is not set, use backward compatibility logic
+        if vector_method is None:
+            if self.cfg.use_colbert and self.cfg.use_vector:
+                vector_method = "colbert"
+            elif self.cfg.use_vector:
+                vector_method = "standard"
+            else:
+                vector_method = "none"
+        
+        # Check if vector retrieval is disabled
+        if vector_method == "none":
+            self.logger.info("Vector retrieval is disabled in configuration")
+            return {}
+        
+        # Use ColBERT for vector retrieval if specified
+        if vector_method == "colbert":
+            self.logger.info(f"Using ColBERT for vector retrieval with {len(queries)} queries")
+            return self._colbert_retrieve(queries)
+        
+        # Regular vector retrieval using dense embeddings
+        self.logger.info(f"Performing standard vector retrieval for {len(queries)} queries")
         
         combined_results = {}
         
@@ -682,6 +884,11 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         Retrieve documents from the knowledge base matching the query.
         The retrieval pipeline is configured according to the PipelineConfig.
         
+        Depending on configuration, this method can use:
+        - Standard vector retrieval with dense embeddings
+        - BM25 keyword search
+        - ColBERT retrieval with PLAID index (when vector_retrieval_method="colbert")
+        
         Args:
             query: Query text to match against documents
             limit: Maximum number of documents to return (overrides config.top_k)
@@ -706,7 +913,8 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             "models": {
                 "embedding_model": self.cfg.embedding_model,
                 "reranker_model": self.cfg.reranker_model if self.cfg.use_reranker else None,
-                "reranker_model_type": self.cfg.reranker_model_type if self.cfg.use_reranker else None
+                "reranker_model_type": self.cfg.reranker_model_type if self.cfg.use_reranker else None,
+                "colbert_model": self.cfg.colbert_model_name if hasattr(self.cfg, 'vector_retrieval_method') and self.cfg.vector_retrieval_method == "colbert" else None
             },
             "device": self.cfg.device,
             "steps": {}
@@ -715,8 +923,17 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
         # Check for an override configuration for this request only
         config = kwargs.get('override_config', self.cfg)
         
+        # For backward compatibility, if vector_retrieval_method is not set, infer it from use_vector and use_colbert
+        if not hasattr(config, 'vector_retrieval_method'):
+            if config.use_colbert:
+                config.vector_retrieval_method = "colbert"
+            elif config.use_vector:
+                config.vector_retrieval_method = "standard"
+            else:
+                config.vector_retrieval_method = "none"
+        
         # Validate that at least one retrieval method is enabled
-        if not (config.use_vector or config.use_bm25):
+        if config.vector_retrieval_method == "none" and not config.use_bm25:
             self.logger.error(f"[QueryID: {query_id}] No retrieval methods enabled.")
             raise ValueError("At least one retrieval method (vector or BM25) must be enabled")
         
@@ -738,7 +955,7 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             else:
                 # Use simple query without decomposition
                 queries = {
-                    'vector_query_decomposition': [query] if config.use_vector else [],
+                    'vector_query_decomposition': [query] if config.vector_retrieval_method != "none" else [],
                     'bm25_query_decomposition': [query] if config.use_bm25 else []
                 }
                 
@@ -752,14 +969,21 @@ class ConfigurableRAGRetriever(KBRetrieverBase):
             vector_results = {}
             bm25_results = {}
             
-            # Vector retrieval
-            if config.use_vector and queries['vector_query_decomposition']:
+            # Vector retrieval (standard or ColBERT)
+            if config.vector_retrieval_method != "none" and queries['vector_query_decomposition']:
                 step_start = datetime.datetime.now()
-                self.logger.info(f"[QueryID: {query_id}] Performing vector retrieval with {len(queries['vector_query_decomposition'])} queries")
+                
+                if config.vector_retrieval_method == "colbert":
+                    self.logger.info(f"[QueryID: {query_id}] Performing ColBERT retrieval with {len(queries['vector_query_decomposition'])} queries")
+                else:
+                    self.logger.info(f"[QueryID: {query_id}] Performing standard vector retrieval with {len(queries['vector_query_decomposition'])} queries")
+                
                 vector_results = self._vector_retrieve(queries['vector_query_decomposition'])
                 
                 pipeline_log["steps"]["vector_retrieval"] = {
                     "enabled": True,
+                    "method": config.vector_retrieval_method,
+                    "colbert_model": self.cfg.colbert_model_name if config.vector_retrieval_method == "colbert" else None,
                     "query_count": len(queries['vector_query_decomposition']),
                     "result_count": len(vector_results),
                     "time_ms": (datetime.datetime.now() - step_start).total_seconds() * 1000
@@ -1077,6 +1301,10 @@ ANSWER:
         """
         Process a query through the RAG pipeline by retrieving documents and generating an answer.
         
+        The retrieval step can use standard vector search, BM25, ColBERT, or a combination,
+        based on the configuration. ColBERT retrieval (when enabled) uses token-level
+        interaction via the PyLate library and a PLAID index.
+        
         Args:
             query: The user's query
             query_id: Optional query identifier for logging
@@ -1167,7 +1395,8 @@ def main():
     parser = argparse.ArgumentParser(description="Run the configurable RAG retriever")
     parser.add_argument("--db_path", type=str, default="abstracts.db", help="Path to the SQLite database")
     parser.add_argument("--preset", type=str, default="vector_only", 
-                      help="Pipeline preset (vector_only, vector_plus_rerank, vector_plus_bm25, vector_bm25_rerank, vector_bm25_rerank_llm, full_hybrid)")
+                      help="Pipeline preset (vector_only, vector_plus_rerank, vector_plus_bm25, vector_bm25_rerank, "
+                           "vector_bm25_rerank_llm, colbert_only, colbert_plus_rerank, full_hybrid)")
     parser.add_argument("--top_k", type=int, default=5, help="Number of documents to retrieve")
     parser.add_argument("--device", type=str, default="cpu", help="Device to use for models (cpu or cuda)")
     parser.add_argument("--query", type=str, help="Query to run (if not provided, interactive mode is used)")
@@ -1175,6 +1404,7 @@ def main():
     # Add flags for individual pipeline components (override preset)
     parser.add_argument("--use_vector", type=bool, default=None, help="Use vector search")
     parser.add_argument("--use_bm25", type=bool, default=None, help="Use BM25 search")
+    parser.add_argument("--use_colbert", type=bool, default=None, help="Use ColBERT retrieval")
     parser.add_argument("--use_reranker", type=bool, default=None, help="Use cross-encoder reranker")
     parser.add_argument("--use_llm_reranker", type=bool, default=None, help="Use LLM reranker")
     parser.add_argument("--use_query_decomposition", type=bool, default=None, help="Use query decomposition")
@@ -1189,7 +1419,7 @@ def main():
     config.device = args.device
     
     # Override individual pipeline components if specified
-    for flag in ['use_vector', 'use_bm25', 'use_reranker', 'use_llm_reranker', 'use_query_decomposition']:
+    for flag in ['use_vector', 'use_bm25', 'use_colbert', 'use_reranker', 'use_llm_reranker', 'use_query_decomposition']:
         value = getattr(args, flag)
         if value is not None:
             setattr(config, flag, value)

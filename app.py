@@ -46,6 +46,8 @@ class PipelineConfigModel(BaseModel):
     preset: str = Field(default="vector_only", description="Pipeline preset configuration name")
     use_vector: Optional[bool] = Field(default=True, description="Use vector search")
     use_bm25: Optional[bool] = Field(default=False, description="Use BM25 keyword search")
+    use_colbert: Optional[bool] = Field(default=False, description="Use ColBERT retrieval with PLAID index")
+    vector_retrieval_method: Optional[str] = Field(default="standard", description="Vector retrieval method: 'none', 'standard' (single-vector), or 'colbert' (multi-vector)")
     use_reranker: Optional[bool] = Field(default=False, description="Use cross-encoder reranker")
     use_llm_reranker: Optional[bool] = Field(default=False, description="Use LLM-based relevance filtering")
     use_query_decomposition: Optional[bool] = Field(default=False, description="Use LLM-based query decomposition")
@@ -162,6 +164,10 @@ def get_pipeline(config_dict: Dict[str, Any]) -> ConfigurableRAGRetriever:
         config.use_vector = config_dict['use_vector']
     if config_dict.get('use_bm25') is not None:
         config.use_bm25 = config_dict['use_bm25']
+    if config_dict.get('use_colbert') is not None:
+        config.use_colbert = config_dict['use_colbert']
+    if config_dict.get('vector_retrieval_method') is not None:
+        config.vector_retrieval_method = config_dict['vector_retrieval_method']
     if config_dict.get('use_reranker') is not None:
         config.use_reranker = config_dict['use_reranker']
     if config_dict.get('use_llm_reranker') is not None:
@@ -172,6 +178,18 @@ def get_pipeline(config_dict: Dict[str, Any]) -> ConfigurableRAGRetriever:
         config.top_k = int(config_dict['top_k'])
     if config_dict.get('min_similarity_pct') is not None:
         config.min_similarity_pct = float(config_dict['min_similarity_pct'])
+    
+    # For backward compatibility, ensure use_vector and use_colbert flags match the vector_retrieval_method
+    if 'vector_retrieval_method' in config_dict:
+        if config.vector_retrieval_method == "standard":
+            config.use_vector = True
+            config.use_colbert = False
+        elif config.vector_retrieval_method == "colbert":
+            config.use_vector = True
+            config.use_colbert = True
+        elif config.vector_retrieval_method == "none":
+            config.use_vector = False
+            config.use_colbert = False
     
     # Create a new pipeline instance
     logger.info(f"Creating new pipeline with config: {config}")
@@ -213,7 +231,7 @@ async def process_query(query_request: QueryRequest):
             logger.warning(f"[QueryID: {query_id}] Empty query received")
             raise HTTPException(status_code=400, detail="No query provided")
         
-        config = query_request.config.dict()
+        config = query_request.config.model_dump()
         logger.info(f"[QueryID: {query_id}] Using configuration preset: {config.get('preset')}")
         logger.debug(f"[QueryID: {query_id}] Configuration details: {config}")
         
@@ -245,7 +263,8 @@ async def process_query(query_request: QueryRequest):
                 "embedding_model": pipeline_config.embedding_model,
                 "reranker_model": pipeline_config.reranker_model if pipeline_config.use_reranker else None,
                 "llm_model": pipeline_config.llm_model,
-                "reranker_model_type": pipeline_config.reranker_model_type if pipeline_config.use_reranker else None
+                "reranker_model_type": pipeline_config.reranker_model_type if pipeline_config.use_reranker else None,
+                "colbert_model": pipeline_config.colbert_model_name if pipeline_config.use_colbert else None
             },
             "device": pipeline_config.device,
             "result": {
@@ -281,6 +300,8 @@ async def get_presets():
         {"value": "vector_plus_bm25", "name": "Vector + BM25", "description": "Combined vector and BM25 retrieval."},
         {"value": "vector_bm25_rerank", "name": "Vector + BM25 + Reranker", "description": "Combined vector and BM25 with cross-encoder reranking."},
         {"value": "vector_bm25_rerank_llm", "name": "Vector + BM25 + Reranker + LLM Filter", "description": "Combined retrieval with reranking and LLM filtering."},
+        {"value": "colbert_only", "name": "ColBERT Only", "description": "ColBERT retrieval using PLAID index."},
+        {"value": "colbert_plus_rerank", "name": "ColBERT + Reranker", "description": "ColBERT retrieval with cross-encoder reranking."},
         {"value": "full_hybrid", "name": "Full Hybrid", "description": "Full hybrid pipeline with all features enabled."}
     ]
     return presets

@@ -1,7 +1,10 @@
 // Main application logic for RAG Pipeline Explorer
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
-    const useVectorCheckbox = document.getElementById('useVector');
+    const useVectorRetrievalCheckbox = document.getElementById('useVectorRetrieval');
+    const vectorMethodSingleRadio = document.getElementById('singleVector');
+    const vectorMethodMultiRadio = document.getElementById('multiVector');
+    const vectorMethodSelection = document.getElementById('vectorMethodSelection');
     const useBM25Checkbox = document.getElementById('useBM25');
     const useRerankerCheckbox = document.getElementById('useReranker');
     const useLLMRerankerCheckbox = document.getElementById('useLLMReranker');
@@ -60,9 +63,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Add retrieval method validation
-    useVectorCheckbox.addEventListener('change', validateRetrievalMethods);
-    useBM25Checkbox.addEventListener('change', validateRetrievalMethods);
+    // Add vector retrieval method handling
+    useVectorRetrievalCheckbox.addEventListener('change', function() {
+        updateVectorMethodVisibility();
+        validateRetrievalMethods.call(this);
+    });
+    vectorMethodSingleRadio.addEventListener('change', validateRetrievalMethods);
+    vectorMethodMultiRadio.addEventListener('change', validateRetrievalMethods);
+    useBM25Checkbox.addEventListener('change', function() {
+        validateRetrievalMethods.call(this);
+    });
     
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
@@ -75,15 +85,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Update vector method selection visibility based on vector retrieval toggle
+    function updateVectorMethodVisibility() {
+        if (useVectorRetrievalCheckbox.checked) {
+            vectorMethodSelection.style.display = 'block';
+        } else {
+            vectorMethodSelection.style.display = 'none';
+        }
+    }
+    
     // Validate that at least one retrieval method is selected
     function validateRetrievalMethods() {
-        if (!useVectorCheckbox.checked && !useBM25Checkbox.checked) {
-            // If both are unchecked, force at least one to be checked
-            if (this === useVectorCheckbox) {
+        const isVectorEnabled = useVectorRetrievalCheckbox.checked;
+        const isBM25Enabled = useBM25Checkbox.checked;
+        
+        // If all are unchecked, enable the opposite of what was just unchecked
+        if (!isVectorEnabled && !isBM25Enabled) {
+            // Determine which toggle triggered this validation
+            if (this === useVectorRetrievalCheckbox) {
+                // Vector was just turned off, so turn on BM25
                 useBM25Checkbox.checked = true;
-                showShortcutToast('At least one retrieval method must be enabled');
+                showShortcutToast('BM25 enabled: At least one retrieval method must be enabled');
+            } else if (this === useBM25Checkbox) {
+                // BM25 was just turned off, so turn on Vector
+                useVectorRetrievalCheckbox.checked = true;
+                vectorMethodSingleRadio.checked = true;
+                updateVectorMethodVisibility();
+                showShortcutToast('Vector Retrieval enabled: At least one retrieval method must be enabled');
             } else {
-                useVectorCheckbox.checked = true;
+                // Default case (initial load or called from elsewhere)
+                // Default to enabling Vector as before
+                useVectorRetrievalCheckbox.checked = true;
+                vectorMethodSingleRadio.checked = true;
+                updateVectorMethodVisibility();
                 showShortcutToast('At least one retrieval method must be enabled');
             }
         }
@@ -144,22 +178,35 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize UI
     function initializeUI() {
-        // Set default values
-        useVectorCheckbox.checked = true;
-        useBM25Checkbox.checked = false;
-        useRerankerCheckbox.checked = false;
-        useLLMRerankerCheckbox.checked = false;
-        useQueryDecompositionCheckbox.checked = false;
+        // Temporarily disable validation to avoid triggering toggles
+        const originalValidateRetrievalMethods = validateRetrievalMethods;
+        validateRetrievalMethods = function() {};
         
-        updateTopKValue();
-        updateMinSimilarityValue();
-        
-        // Initialize sources section with minimum height
-        sourcesContainer.innerHTML = '<div class="no-sources-message">Submit a query to see sources</div>';
-        sourcesSection.style.display = 'block';
-        
-        // Call layout adjustment on initial load
-        setTimeout(adjustLayoutHeights, 100);
+        try {
+            // Set default values
+            useVectorRetrievalCheckbox.checked = true;
+            vectorMethodSingleRadio.checked = true;
+            useBM25Checkbox.checked = false;
+            useRerankerCheckbox.checked = false;
+            useLLMRerankerCheckbox.checked = false;
+            useQueryDecompositionCheckbox.checked = false;
+            
+            // Initialize vector method visibility
+            updateVectorMethodVisibility();
+            
+            updateTopKValue();
+            updateMinSimilarityValue();
+            
+            // Initialize sources section with minimum height
+            sourcesContainer.innerHTML = '<div class="no-sources-message">Submit a query to see sources</div>';
+            sourcesSection.style.display = 'block';
+            
+            // Call layout adjustment on initial load
+            setTimeout(adjustLayoutHeights, 100);
+        } finally {
+            // Restore validation function
+            validateRetrievalMethods = originalValidateRetrievalMethods;
+        }
     }
     
     // We don't need to load sidebar state anymore since it's always visible
@@ -215,9 +262,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Get current configuration from UI
     function getCurrentConfig() {
+        // Determine vector retrieval method from UI
+        let vector_retrieval_method = "none";
+        
+        if (useVectorRetrievalCheckbox.checked) {
+            vector_retrieval_method = vectorMethodMultiRadio.checked ? "colbert" : "standard";
+        }
+        
+        // For backward compatibility, set use_vector and use_colbert flags
+        const useStandardVector = useVectorRetrievalCheckbox.checked && vectorMethodSingleRadio.checked;
+        const useColbert = useVectorRetrievalCheckbox.checked && vectorMethodMultiRadio.checked;
+        
         return {
             preset: "custom", // Always use custom preset since we removed the selector
-            use_vector: useVectorCheckbox.checked,
+            use_vector: useStandardVector,
+            use_colbert: useColbert,
+            vector_retrieval_method: vector_retrieval_method,
             use_bm25: useBM25Checkbox.checked,
             use_reranker: useRerankerCheckbox.checked,
             use_llm_reranker: useLLMRerankerCheckbox.checked,
@@ -409,8 +469,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (doc.source.includes('vector') && doc.source.includes('bm25')) {
             sourceType = 'Vector+BM25';
             sourceElement.classList.add('combined');
+        } else if (doc.source.includes('colbert')) {
+            sourceType = 'Multi-Vector';
+            sourceElement.classList.add('colbert');
         } else if (doc.source.includes('vector')) {
-            sourceType = 'Vector';
+            sourceType = 'Single-Vector';
             sourceElement.classList.add('vector');
         } else if (doc.source.includes('bm25')) {
             sourceType = 'BM25';
@@ -534,7 +597,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const parts = [];
         
         // Add enabled features based on actual configuration
-        if (config.use_vector) parts.push('Vector');
+        if (config.vector_retrieval_method) {
+            if (config.vector_retrieval_method === "standard") {
+                parts.push('Single-Vector');
+            } else if (config.vector_retrieval_method === "colbert") {
+                parts.push('Multi-Vector');
+            }
+        } else {
+            // Backward compatibility
+            if (config.use_vector) parts.push('Vector');
+            if (config.use_colbert) parts.push('ColBERT');
+        }
+        
         if (config.use_bm25) parts.push('BM25');
         if (config.use_reranker) parts.push('Reranker');
         if (config.use_llm_reranker) parts.push('LLM Filter');
@@ -551,26 +625,57 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set query input
         queryInput.value = historyItem.query;
         
-        // Set configuration checkboxes - using explicit boolean conversion
-        useVectorCheckbox.checked = Boolean(historyItem.config.use_vector);
-        useBM25Checkbox.checked = Boolean(historyItem.config.use_bm25);
-        useRerankerCheckbox.checked = Boolean(historyItem.config.use_reranker);
-        useLLMRerankerCheckbox.checked = Boolean(historyItem.config.use_llm_reranker);
-        useQueryDecompositionCheckbox.checked = Boolean(historyItem.config.use_query_decomposition);
+        // Temporarily disable validation to avoid triggering toggles
+        const originalValidateRetrievalMethods = validateRetrievalMethods;
+        validateRetrievalMethods = function() {};
         
-        // Validate at least one retrieval method is checked
-        if (!useVectorCheckbox.checked && !useBM25Checkbox.checked) {
-            // Default to BM25 if neither is selected (should not happen with backend validation)
-            useBM25Checkbox.checked = true;
+        try {
+            // Set configuration based on vector_retrieval_method if available
+            if (historyItem.config.vector_retrieval_method) {
+                if (historyItem.config.vector_retrieval_method === "none") {
+                    useVectorRetrievalCheckbox.checked = false;
+                } else {
+                    useVectorRetrievalCheckbox.checked = true;
+                    if (historyItem.config.vector_retrieval_method === "colbert") {
+                        vectorMethodMultiRadio.checked = true;
+                    } else {
+                        vectorMethodSingleRadio.checked = true;
+                    }
+                }
+            } else {
+                // Backward compatibility
+                useVectorRetrievalCheckbox.checked = Boolean(historyItem.config.use_vector);
+                vectorMethodSingleRadio.checked = Boolean(historyItem.config.use_vector);
+                vectorMethodMultiRadio.checked = Boolean(historyItem.config.use_colbert);
+            }
+            
+            // Update vector method visibility based on the toggle
+            updateVectorMethodVisibility();
+            
+            useBM25Checkbox.checked = Boolean(historyItem.config.use_bm25);
+            useRerankerCheckbox.checked = Boolean(historyItem.config.use_reranker);
+            useLLMRerankerCheckbox.checked = Boolean(historyItem.config.use_llm_reranker);
+            useQueryDecompositionCheckbox.checked = Boolean(historyItem.config.use_query_decomposition);
+            
+            // After setting all toggles, validate that at least one retrieval method is checked
+            if (!useVectorRetrievalCheckbox.checked && !useBM25Checkbox.checked) {
+                // Default to enabling vector if nothing is selected
+                useVectorRetrievalCheckbox.checked = true;
+                vectorMethodSingleRadio.checked = true;
+                updateVectorMethodVisibility();
+            }
+            
+            // Set slider values
+            topKSlider.value = historyItem.config.top_k;
+            minSimilaritySlider.value = historyItem.config.min_similarity_pct;
+            
+            // Update displayed values
+            updateTopKValue();
+            updateMinSimilarityValue();
+        } finally {
+            // Restore validation function
+            validateRetrievalMethods = originalValidateRetrievalMethods;
         }
-        
-        // Set slider values
-        topKSlider.value = historyItem.config.top_k;
-        minSimilaritySlider.value = historyItem.config.min_similarity_pct;
-        
-        // Update displayed values
-        updateTopKValue();
-        updateMinSimilarityValue();
         
         // Display result if available
         if (historyItem.result) {
