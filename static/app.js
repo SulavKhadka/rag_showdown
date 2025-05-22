@@ -458,37 +458,33 @@ document.addEventListener('DOMContentLoaded', () => {
     function createDocumentElement(doc) {
         const template = documentTemplate.content.cloneNode(true);
         
-        // Set document title
-        template.querySelector('.document-title').textContent = doc.title;
-        
-        // Set source with appropriate class
-        const sourceElement = template.querySelector('.document-source');
-        
         // Determine source type display text
         let sourceType = 'Source';
         if (doc.source.includes('vector') && doc.source.includes('bm25')) {
             sourceType = 'Vector+BM25';
-            sourceElement.classList.add('combined');
         } else if (doc.source.includes('colbert')) {
             sourceType = 'Multi-Vector';
-            sourceElement.classList.add('colbert');
         } else if (doc.source.includes('vector')) {
             sourceType = 'Single-Vector';
-            sourceElement.classList.add('vector');
         } else if (doc.source.includes('bm25')) {
             sourceType = 'BM25';
-            sourceElement.classList.add('bm25');
         }
         
-        sourceElement.textContent = sourceType;
-        
-        // Set similarity percentage, but hide it for BM25-only results
-        const similarityElement = template.querySelector('.document-similarity');
-        if (doc.source === 'bm25') {
-            similarityElement.style.display = 'none';
-        } else {
+        // Build combined title with inline metadata: "Title • SourceType • 85%"
+        let combinedTitle = doc.title;
+        combinedTitle += ` • ${sourceType}`;
+        if (doc.source !== 'bm25' && doc.similarity) {
             const similarityPercent = Math.round(doc.similarity * 100);
-            similarityElement.textContent = `${similarityPercent}%`;
+            combinedTitle += ` • ${similarityPercent}%`;
+        }
+        
+        // Set the combined title
+        template.querySelector('.document-title').textContent = combinedTitle;
+        
+        // Hide the separate source info section since it's now inline
+        const sourceInfoElement = template.querySelector('.document-source-info');
+        if (sourceInfoElement) {
+            sourceInfoElement.style.display = 'none';
         }
         
         // Set content
@@ -966,7 +962,6 @@ function adjustLayoutHeights() {
             }
             
             const data = await response.json();
-            console.log('Documents data:', data); // Debug log
             renderDocuments(data);
             renderPagination(data);
             
@@ -1006,7 +1001,6 @@ function adjustLayoutHeights() {
     }
     
     function renderPagination(data) {
-        console.log('Pagination data:', data); // Debug log
         
         // Handle undefined or invalid data
         if (!data || !data.page || !data.limit || !data.total) {

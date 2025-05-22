@@ -235,7 +235,7 @@ button {
 
 /* Sidebar styles */
 .sidebar {
-    width: 320px;
+    width: 260px;
     background-color: #F1F5F9; /* Updated background color */
     border-right: 1px solid #E2E8F0; /* Updated border color */
     overflow-y: auto;
@@ -269,7 +269,7 @@ button {
 
 /* New styles for query section in sidebar */
 .sidebar-query-container {
-    padding: 16px 12px;
+    padding: 12px 8px;
     background-color: #fff;
     border-radius: 6px;
     margin-bottom: 16px;
@@ -336,7 +336,7 @@ button {
 
 /* Configuration panel */
 .config-panel {
-    padding: 16px 12px; /* Updated padding */
+    padding: 12px 8px; /* Updated padding */
     background-color: #F1F5F9; /* Updated background color */
     flex: 1;
     overflow-y: auto;
@@ -359,7 +359,7 @@ button {
 .config-options {
     display: flex;
     flex-direction: column;
-    gap: 24px; /* Updated spacing */
+    gap: 16px; /* Updated spacing */
 }
 
 .custom-config {
@@ -1068,7 +1068,7 @@ input:disabled + .toggle-slider {
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 16px;
+    gap: 12px;
     margin-top: 16px;
 }
 
@@ -1076,7 +1076,7 @@ input:disabled + .toggle-slider {
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
     border-radius: 8px;
-    padding: 20px;
+    padding: 16px;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -1192,14 +1192,16 @@ input:disabled + .toggle-slider {
 /* Document list */
 .documents-grid {
     padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
 }
 
 .document-list-item {
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
     border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
     transition: all 0.2s ease;
 }
 

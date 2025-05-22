@@ -487,7 +487,7 @@ async def get_authors():
                 FROM abstracts, json_each(authors)
                 WHERE json_valid(authors)
                 GROUP BY value
-                ORDER BY author
+                ORDER BY count DESC, author
             """)
             
             authors = [AuthorInfo(name=row["author"], count=row["count"]) 
