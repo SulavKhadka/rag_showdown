@@ -880,29 +880,35 @@ function adjustLayoutHeights() {
     function renderStats(stats) {
         statsGrid.innerHTML = '';
         
+        // Handle undefined stats
+        if (!stats) {
+            statsGrid.innerHTML = '<p>Unable to load statistics</p>';
+            return;
+        }
+        
         const statsData = [
             {
                 icon: 'fa-file-alt',
                 title: 'Total Documents',
-                value: stats.total_documents.toLocaleString(),
+                value: (stats.total_documents || 0).toLocaleString(),
                 subtitle: 'Scientific abstracts'
             },
             {
                 icon: 'fa-calendar',
                 title: 'Date Range',
-                value: `${stats.date_range.earliest?.slice(0, 4) || 'N/A'} - ${stats.date_range.latest?.slice(0, 4) || 'N/A'}`,
+                value: `${stats.date_range?.earliest?.slice(0, 4) || 'N/A'} - ${stats.date_range?.latest?.slice(0, 4) || 'N/A'}`,
                 subtitle: 'Publication years'
             },
             {
                 icon: 'fa-user',
                 title: 'Top Author',
-                value: stats.top_authors[0]?.name || 'N/A',
-                subtitle: `${stats.top_authors[0]?.count || 0} publications`
+                value: stats.top_authors?.[0]?.name || 'N/A',
+                subtitle: `${stats.top_authors?.[0]?.count || 0} publications`
             },
             {
                 icon: 'fa-ruler',
                 title: 'Avg. Length',
-                value: `${Math.round(stats.avg_abstract_length)} chars`,
+                value: `${Math.round(stats.avg_abstract_length || 0)} chars`,
                 subtitle: 'Abstract length'
             }
         ];
@@ -953,9 +959,14 @@ function adjustLayoutHeights() {
             if (currentFilters.sort) params.append('sort', currentFilters.sort);
             
             const response = await fetch(`/api/documents?${params}`);
-            if (!response.ok) throw new Error('Failed to load documents');
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API Error:', response.status, errorText);
+                throw new Error(`Failed to load documents: ${response.status}`);
+            }
             
             const data = await response.json();
+            console.log('Documents data:', data); // Debug log
             renderDocuments(data);
             renderPagination(data);
             
@@ -969,7 +980,7 @@ function adjustLayoutHeights() {
     function renderDocuments(data) {
         documentsGrid.innerHTML = '';
         
-        if (data.documents.length === 0) {
+        if (!data || !data.documents || data.documents.length === 0) {
             documentsGrid.innerHTML = '<p style="text-align: center; color: #64748B; padding: 40px;">No documents found matching your criteria.</p>';
             return;
         }
@@ -977,11 +988,11 @@ function adjustLayoutHeights() {
         data.documents.forEach(doc => {
             const item = documentListTemplate.content.cloneNode(true);
             
-            item.querySelector('.document-list-title').textContent = doc.title;
-            item.querySelector('.document-list-date').textContent = doc.published;
-            item.querySelector('.document-list-source').textContent = doc.source;
-            item.querySelector('.document-list-authors').textContent = doc.authors.join(', ') || 'No authors listed';
-            item.querySelector('.document-list-preview').textContent = doc.abstract_preview;
+            item.querySelector('.document-list-title').textContent = doc.title || 'Untitled';
+            item.querySelector('.document-list-date').textContent = doc.published || 'Unknown date';
+            item.querySelector('.document-list-source').textContent = doc.source || 'Unknown source';
+            item.querySelector('.document-list-authors').textContent = (doc.authors || []).join(', ') || 'No authors listed';
+            item.querySelector('.document-list-preview').textContent = doc.abstract_preview || 'No preview available';
             
             // Add event listeners for buttons
             const viewBtn = item.querySelector('.btn-view-document');
@@ -995,7 +1006,18 @@ function adjustLayoutHeights() {
     }
     
     function renderPagination(data) {
-        paginationInfo.textContent = `Showing ${((data.page - 1) * data.limit) + 1}-${Math.min(data.page * data.limit, data.total)} of ${data.total} documents`;
+        console.log('Pagination data:', data); // Debug log
+        
+        // Handle undefined or invalid data
+        if (!data || !data.page || !data.limit || !data.total) {
+            paginationInfo.textContent = 'No pagination data available';
+            paginationControls.innerHTML = '';
+            return;
+        }
+        
+        const startItem = ((data.page - 1) * data.limit) + 1;
+        const endItem = Math.min(data.page * data.limit, data.total);
+        paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${data.total} documents`;
         
         paginationControls.innerHTML = '';
         
