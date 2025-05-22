@@ -443,14 +443,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Truncate authors to show max 5 authors
+    // Truncate authors to show max 3 authors
     function formatAuthors(authors) {
         if (!authors || !authors.length) return '';
         
-        if (authors.length <= 5) {
+        if (authors.length <= 3) {
             return authors.join(', ');
         } else {
-            return authors.slice(0, 5).join(', ') + '...';
+            return authors.slice(0, 3).join(', ') + ' et al';
         }
     }
     
@@ -977,7 +977,7 @@ function adjustLayoutHeights() {
             item.querySelector('.document-list-title').textContent = doc.title || 'Untitled';
             item.querySelector('.document-list-date').textContent = doc.published || 'Unknown date';
             item.querySelector('.document-list-source').textContent = doc.source || 'Unknown source';
-            item.querySelector('.document-list-authors').textContent = (doc.authors || []).join(', ') || 'No authors listed';
+            item.querySelector('.document-list-authors').textContent = formatAuthors(doc.authors) || 'No authors listed';
             item.querySelector('.document-list-preview').textContent = doc.abstract_preview || 'No preview available';
             
             // Add event listeners for buttons
@@ -1056,7 +1056,7 @@ function adjustLayoutHeights() {
                 <div class="document-detail">
                     <h3>${doc.title}</h3>
                     <div class="document-meta">
-                        <p><strong>Authors:</strong> ${doc.authors.join(', ') || 'Not specified'}</p>
+                        <p><strong>Authors:</strong> ${formatAuthors(doc.authors) || 'Not specified'}</p>
                         <p><strong>Published:</strong> ${doc.published}</p>
                         <p><strong>Source:</strong> ${doc.source}</p>
                         ${doc.link ? `<p><strong>Link:</strong> <a href="${doc.link}" target="_blank">${doc.link}</a></p>` : ''}
@@ -1092,7 +1092,7 @@ function adjustLayoutHeights() {
                         <div class="similar-document-item" style="margin-bottom: 16px; padding: 16px; border: 1px solid #E2E8F0; border-radius: 6px;">
                             <h4 style="margin: 0 0 8px 0;">${doc.title}</h4>
                             <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748B;">
-                                ${doc.authors.join(', ')} • ${doc.published}
+                                ${formatAuthors(doc.authors)} • ${doc.published}
                             </p>
                             <p style="margin: 0; font-size: 14px; color: #475569;">${doc.abstract_preview}</p>
                             <button onclick="showDocumentDetail(${doc.id})" style="margin-top: 8px; padding: 4px 8px; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;">View Details</button>
