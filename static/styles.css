@@ -1114,9 +1114,9 @@ input:disabled + .toggle-slider {
 
 /* Exploration results styles */
 .explore-container {
-    padding: 20px;
-    max-width: 1200px;
-    margin: 0 auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .stats-section {
@@ -1191,6 +1191,9 @@ input:disabled + .toggle-slider {
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .browser-header {
@@ -1257,7 +1260,7 @@ input:disabled + .toggle-slider {
 /* Document list */
 .documents-grid {
     padding: 20px;
-    max-height: 60vh;
+    flex: 1;
     overflow-y: auto;
 }
 
