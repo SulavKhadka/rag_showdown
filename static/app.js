@@ -976,7 +976,8 @@ function adjustLayoutHeights() {
             
             item.querySelector('.document-list-title').textContent = doc.title || 'Untitled';
             item.querySelector('.document-list-date').textContent = doc.published || 'Unknown date';
-            item.querySelector('.document-list-source').textContent = doc.source || 'Unknown source';
+            // Hide source to make display more compact
+            item.querySelector('.document-list-source').style.display = 'none';
             item.querySelector('.document-list-authors').textContent = formatAuthors(doc.authors) || 'No authors listed';
             item.querySelector('.document-list-preview').textContent = doc.abstract_preview || 'No preview available';
             
@@ -1058,7 +1059,6 @@ function adjustLayoutHeights() {
                     <div class="document-meta">
                         <p><strong>Authors:</strong> ${formatAuthors(doc.authors) || 'Not specified'}</p>
                         <p><strong>Published:</strong> ${doc.published}</p>
-                        <p><strong>Source:</strong> ${doc.source}</p>
                         ${doc.link ? `<p><strong>Link:</strong> <a href="${doc.link}" target="_blank">${doc.link}</a></p>` : ''}
                     </div>
                     <div class="document-abstract">
