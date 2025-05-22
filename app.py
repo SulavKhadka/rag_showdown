@@ -3,7 +3,7 @@ import json
 import platform
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -15,6 +15,7 @@ import datetime
 import uuid
 import sys
 import psutil
+import sqlite3
 from pathlib import Path
 
 from pipelines.configurable_rag import ConfigurableRAGRetriever
@@ -40,6 +41,47 @@ logger.addHandler(file_handler)
 
 # Default database path
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'abstracts.db')
+
+def get_db_connection():
+    """Get database connection with FTS5 support"""
+    conn = sqlite3.connect(DEFAULT_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def setup_fts5_table():
+    """Create FTS5 virtual table if it doesn't exist"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if FTS5 table already exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='abstracts_fts'
+        """)
+        
+        if not cursor.fetchone():
+            # Create FTS5 virtual table
+            cursor.execute("""
+                CREATE VIRTUAL TABLE abstracts_fts USING fts5(
+                    title, abstract, authors, content=abstracts
+                )
+            """)
+            
+            # Populate FTS5 table with existing data
+            cursor.execute("""
+                INSERT INTO abstracts_fts(rowid, title, abstract, authors)
+                SELECT id, title, abstract, authors FROM abstracts
+            """)
+            
+            conn.commit()
+            logger.info("FTS5 table created and populated successfully")
+        else:
+            logger.info("FTS5 table already exists")
+            
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error setting up FTS5 table: {str(e)}")
 
 # Create pipeline cache
 pipeline_cache = {}
@@ -86,6 +128,41 @@ class PresetInfo(BaseModel):
 class DBStatus(BaseModel):
     exists: bool
     path: str
+
+class DatasetStats(BaseModel):
+    total_documents: int
+    date_range: Dict[str, Optional[str]]
+    top_authors: List[Dict[str, Any]]
+    sources: List[Dict[str, Any]]
+    avg_abstract_length: float
+
+class DocumentListItem(BaseModel):
+    id: int
+    title: str
+    authors: List[str]
+    published: str
+    source: str
+    abstract_preview: str  # First 200 chars
+
+class DocumentListResponse(BaseModel):
+    documents: List[DocumentListItem]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+class DocumentDetail(BaseModel):
+    id: int
+    title: str
+    abstract: str
+    authors: List[str]
+    published: str
+    source: str
+    link: str
+
+class AuthorInfo(BaseModel):
+    name: str
+    count: int
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -330,11 +407,292 @@ async def db_status():
         "path": DEFAULT_DB_PATH
     }
 
+@app.get("/api/dataset/stats", response_model=DatasetStats)
+async def get_dataset_stats():
+    """Get basic statistics about the dataset"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Total documents
+        cursor.execute("SELECT COUNT(*) as total FROM abstracts")
+        total_docs = cursor.fetchone()["total"]
+        
+        # Date range
+        cursor.execute("""
+            SELECT MIN(published) as min_date, MAX(published) as max_date 
+            FROM abstracts WHERE published != ''
+        """)
+        date_range_result = cursor.fetchone()
+        date_range = {
+            "earliest": date_range_result["min_date"],
+            "latest": date_range_result["max_date"]
+        }
+        
+        # Top authors by publication count
+        cursor.execute("""
+            SELECT json_extract(value, '$') as author, COUNT(*) as count
+            FROM abstracts, json_each(authors)
+            WHERE json_extract(value, '$') != ''
+            GROUP BY author
+            ORDER BY count DESC
+            LIMIT 10
+        """)
+        top_authors = [{"name": row["author"], "count": row["count"]} 
+                      for row in cursor.fetchall()]
+        
+        # Source distribution
+        cursor.execute("""
+            SELECT source_file, COUNT(*) as count
+            FROM abstracts
+            GROUP BY source_file
+            ORDER BY count DESC
+        """)
+        sources = [{"source": os.path.basename(row["source_file"]), "count": row["count"]} 
+                  for row in cursor.fetchall()]
+        
+        # Average abstract length
+        cursor.execute("SELECT AVG(LENGTH(abstract)) as avg_length FROM abstracts")
+        avg_length = cursor.fetchone()["avg_length"] or 0
+        
+        conn.close()
+        
+        return DatasetStats(
+            total_documents=total_docs,
+            date_range=date_range,
+            top_authors=top_authors,
+            sources=sources,
+            avg_abstract_length=round(avg_length, 1)
+        )
+    except Exception as e:
+        logger.error(f"Error getting dataset stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving dataset statistics")
+
+@app.get("/api/dataset/authors", response_model=List[AuthorInfo])
+async def get_authors():
+    """Get list of all authors for filtering"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT json_extract(value, '$') as author, COUNT(*) as count
+            FROM abstracts, json_each(authors)
+            WHERE json_extract(value, '$') != ''
+            GROUP BY author
+            ORDER BY author
+        """)
+        
+        authors = [AuthorInfo(name=row["author"], count=row["count"]) 
+                  for row in cursor.fetchall()]
+        
+        conn.close()
+        return authors
+    except Exception as e:
+        logger.error(f"Error getting authors: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving authors")
+
+@app.get("/api/documents", response_model=DocumentListResponse)
+async def get_documents(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    author: Optional[str] = Query(None),
+    year_start: Optional[int] = Query(None),
+    year_end: Optional[int] = Query(None),
+    sort: str = Query("date", regex="^(date|title|relevance)$")
+):
+    """Get paginated list of documents with optional filtering and search"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Build WHERE clause
+        where_conditions = []
+        params = []
+        
+        if search:
+            # Use FTS5 for search
+            where_conditions.append("abstracts.id IN (SELECT rowid FROM abstracts_fts WHERE abstracts_fts MATCH ?)")
+            params.append(search)
+        
+        if author:
+            where_conditions.append("authors LIKE ?")
+            params.append(f'%"{author}"%')
+        
+        if year_start:
+            where_conditions.append("CAST(SUBSTR(published, 1, 4) AS INTEGER) >= ?")
+            params.append(year_start)
+        
+        if year_end:
+            where_conditions.append("CAST(SUBSTR(published, 1, 4) AS INTEGER) <= ?")
+            params.append(year_end)
+        
+        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        # Build ORDER BY clause
+        if sort == "date":
+            order_clause = "ORDER BY published DESC"
+        elif sort == "title":
+            order_clause = "ORDER BY title ASC"
+        elif sort == "relevance" and search:
+            order_clause = "ORDER BY bm25(abstracts_fts) ASC"
+        else:
+            order_clause = "ORDER BY id DESC"
+        
+        # Get total count
+        count_query = f"SELECT COUNT(*) as total FROM abstracts {where_clause}"
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()["total"]
+        
+        # Calculate pagination
+        offset = (page - 1) * limit
+        total_pages = (total + limit - 1) // limit
+        
+        # Get documents
+        if search and sort == "relevance":
+            # Use FTS5 with ranking for relevance sort
+            query = f"""
+                SELECT abstracts.id, title, authors, published, source_file,
+                       SUBSTR(abstract, 1, 200) as abstract_preview
+                FROM abstracts
+                JOIN abstracts_fts ON abstracts.id = abstracts_fts.rowid
+                {where_clause}
+                {order_clause}
+                LIMIT ? OFFSET ?
+            """
+        else:
+            query = f"""
+                SELECT id, title, authors, published, source_file,
+                       SUBSTR(abstract, 1, 200) as abstract_preview
+                FROM abstracts
+                {where_clause}
+                {order_clause}
+                LIMIT ? OFFSET ?
+            """
+        
+        cursor.execute(query, params + [limit, offset])
+        rows = cursor.fetchall()
+        
+        documents = []
+        for row in rows:
+            authors = json.loads(row["authors"]) if row["authors"] else []
+            documents.append(DocumentListItem(
+                id=row["id"],
+                title=row["title"],
+                authors=authors,
+                published=row["published"],
+                source=os.path.basename(row["source_file"]),
+                abstract_preview=row["abstract_preview"] + "..." if len(row["abstract_preview"]) == 200 else row["abstract_preview"]
+            ))
+        
+        conn.close()
+        
+        return DocumentListResponse(
+            documents=documents,
+            total=total,
+            page=page,
+            limit=limit,
+            total_pages=total_pages
+        )
+    except Exception as e:
+        logger.error(f"Error getting documents: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving documents")
+
+@app.get("/api/documents/{doc_id}", response_model=DocumentDetail)
+async def get_document_detail(doc_id: int):
+    """Get detailed information about a specific document"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, title, abstract, authors, published, source_file, link
+            FROM abstracts
+            WHERE id = ?
+        """, (doc_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        authors = json.loads(row["authors"]) if row["authors"] else []
+        
+        document = DocumentDetail(
+            id=row["id"],
+            title=row["title"],
+            abstract=row["abstract"],
+            authors=authors,
+            published=row["published"],
+            source=os.path.basename(row["source_file"]),
+            link=row["link"]
+        )
+        
+        conn.close()
+        return document
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document detail: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving document")
+
+@app.get("/api/documents/{doc_id}/similar", response_model=List[DocumentListItem])
+async def get_similar_documents(doc_id: int, limit: int = Query(5, ge=1, le=20)):
+    """Get documents similar to the specified document using vector embeddings"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # First, check if the document exists
+        cursor.execute("SELECT id FROM abstracts WHERE id = ?", (doc_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Get similar documents using vector search
+        # Note: This requires the vss_abstracts table and sqlite-vec extension
+        cursor.execute("""
+            SELECT a.id, a.title, a.authors, a.published, a.source_file,
+                   SUBSTR(a.abstract, 1, 200) as abstract_preview,
+                   distance
+            FROM vss_abstracts v
+            JOIN abstracts a ON v.rowid = a.id
+            WHERE v.rowid != ?
+            ORDER BY v.embedding MATCH (
+                SELECT embedding FROM vss_abstracts WHERE rowid = ?
+            )
+            LIMIT ?
+        """, (doc_id, doc_id, limit))
+        
+        rows = cursor.fetchall()
+        
+        similar_docs = []
+        for row in rows:
+            authors = json.loads(row["authors"]) if row["authors"] else []
+            similar_docs.append(DocumentListItem(
+                id=row["id"],
+                title=row["title"],
+                authors=authors,
+                published=row["published"],
+                source=os.path.basename(row["source_file"]),
+                abstract_preview=row["abstract_preview"] + "..." if len(row["abstract_preview"]) == 200 else row["abstract_preview"]
+            ))
+        
+        conn.close()
+        return similar_docs
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting similar documents: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving similar documents")
+
 def main():
     """Run the FastAPI application with Uvicorn"""
     # Check if database exists
     if not os.path.exists(DEFAULT_DB_PATH):
         logger.warning(f"Database file {DEFAULT_DB_PATH} not found. Please create the database first.")
+    else:
+        # Set up FTS5 table if database exists
+        setup_fts5_table()
     
     # Run the FastAPI app with Uvicorn
     logger.info("Starting RAG Pipeline Explorer server with FastAPI")
