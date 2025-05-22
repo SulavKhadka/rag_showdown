@@ -764,5 +764,368 @@ function adjustLayoutHeights() {
 
     // We no longer need tooltips for the sidebar as it's now always visible
 
+    // === EXPLORATION FUNCTIONALITY ===
+    
+    // Additional DOM elements for exploration
+    const navTabs = document.querySelectorAll('.nav-tab');
+    const ragConfig = document.getElementById('ragConfig');
+    const exploreConfig = document.getElementById('exploreConfig');
+    const ragResults = document.getElementById('ragResults');
+    const exploreResults = document.getElementById('exploreResults');
+    const exploreSearchInput = document.getElementById('exploreSearchInput');
+    const exploreSearchButton = document.getElementById('exploreSearchButton');
+    const authorFilter = document.getElementById('authorFilter');
+    const yearStartFilter = document.getElementById('yearStartFilter');
+    const yearEndFilter = document.getElementById('yearEndFilter');
+    const sortFilter = document.getElementById('sortFilter');
+    const statsGrid = document.getElementById('statsGrid');
+    const documentsGrid = document.getElementById('documentsGrid');
+    const paginationInfo = document.getElementById('paginationInfo');
+    const paginationControls = document.getElementById('paginationControls');
+    const documentModal = document.getElementById('documentModal');
+    const closeDocumentModal = document.getElementById('closeDocumentModal');
+    const documentModalBody = document.getElementById('documentModalBody');
+    
+    // Templates for exploration
+    const statsCardTemplate = document.getElementById('statsCardTemplate');
+    const documentListTemplate = document.getElementById('documentListTemplate');
+    
+    // Exploration state
+    let currentView = 'rag';
+    let currentPage = 1;
+    let currentSearch = '';
+    let currentFilters = {};
+    let explorationHistory = [];
+    
+    // Navigation tab event listeners
+    navTabs.forEach(tab => {
+        tab.addEventListener('click', () => switchView(tab.dataset.view));
+    });
+    
+    // Exploration search and filter event listeners
+    exploreSearchButton.addEventListener('click', performExploreSearch);
+    exploreSearchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') performExploreSearch();
+    });
+    
+    authorFilter.addEventListener('change', performExploreSearch);
+    yearStartFilter.addEventListener('input', performExploreSearch);
+    yearEndFilter.addEventListener('input', performExploreSearch);
+    sortFilter.addEventListener('change', performExploreSearch);
+    
+    // Document modal event listeners
+    closeDocumentModal.addEventListener('click', closeDocumentModalHandler);
+    documentModal.addEventListener('click', (e) => {
+        if (e.target === documentModal) closeDocumentModalHandler();
+    });
+    
+    // Functions for exploration
+    function switchView(view) {
+        currentView = view;
+        
+        // Update tab states
+        navTabs.forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.view === view);
+        });
+        
+        // Show/hide appropriate config panels
+        if (view === 'rag') {
+            ragConfig.classList.remove('hidden');
+            exploreConfig.classList.add('hidden');
+            ragResults.classList.remove('hidden');
+            exploreResults.classList.add('hidden');
+        } else if (view === 'explore') {
+            ragConfig.classList.add('hidden');
+            exploreConfig.classList.remove('hidden');
+            ragResults.classList.add('hidden');
+            exploreResults.classList.remove('hidden');
+            
+            // Initialize exploration view
+            initializeExploration();
+        }
+        
+        // Save view state
+        localStorage.setItem('currentView', view);
+    }
+    
+    async function initializeExploration() {
+        try {
+            // Load dataset stats
+            await loadDatasetStats();
+            
+            // Load authors for filter
+            await loadAuthors();
+            
+            // Load initial documents
+            await loadDocuments();
+        } catch (error) {
+            console.error('Error initializing exploration:', error);
+            showErrorMessage('Failed to load exploration data');
+        }
+    }
+    
+    async function loadDatasetStats() {
+        try {
+            const response = await fetch('/api/dataset/stats');
+            if (!response.ok) throw new Error('Failed to load stats');
+            
+            const stats = await response.json();
+            renderStats(stats);
+        } catch (error) {
+            console.error('Error loading stats:', error);
+            showErrorMessage('Failed to load dataset statistics');
+        }
+    }
+    
+    function renderStats(stats) {
+        statsGrid.innerHTML = '';
+        
+        const statsData = [
+            {
+                icon: 'fa-file-alt',
+                title: 'Total Documents',
+                value: stats.total_documents.toLocaleString(),
+                subtitle: 'Scientific abstracts'
+            },
+            {
+                icon: 'fa-calendar',
+                title: 'Date Range',
+                value: `${stats.date_range.earliest?.slice(0, 4) || 'N/A'} - ${stats.date_range.latest?.slice(0, 4) || 'N/A'}`,
+                subtitle: 'Publication years'
+            },
+            {
+                icon: 'fa-user',
+                title: 'Top Author',
+                value: stats.top_authors[0]?.name || 'N/A',
+                subtitle: `${stats.top_authors[0]?.count || 0} publications`
+            },
+            {
+                icon: 'fa-ruler',
+                title: 'Avg. Length',
+                value: `${Math.round(stats.avg_abstract_length)} chars`,
+                subtitle: 'Abstract length'
+            }
+        ];
+        
+        statsData.forEach(stat => {
+            const card = statsCardTemplate.content.cloneNode(true);
+            card.querySelector('.stats-card-icon i').className = `fas ${stat.icon}`;
+            card.querySelector('.stats-card-title').textContent = stat.title;
+            card.querySelector('.stats-card-value').textContent = stat.value;
+            card.querySelector('.stats-card-subtitle').textContent = stat.subtitle;
+            statsGrid.appendChild(card);
+        });
+    }
+    
+    async function loadAuthors() {
+        try {
+            const response = await fetch('/api/dataset/authors');
+            if (!response.ok) throw new Error('Failed to load authors');
+            
+            const authors = await response.json();
+            
+            // Clear existing options except the first one
+            authorFilter.innerHTML = '<option value="">All Authors</option>';
+            
+            // Add top 50 authors to avoid overwhelming the dropdown
+            authors.slice(0, 50).forEach(author => {
+                const option = document.createElement('option');
+                option.value = author.name;
+                option.textContent = `${author.name} (${author.count})`;
+                authorFilter.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading authors:', error);
+        }
+    }
+    
+    async function loadDocuments(page = 1) {
+        try {
+            const params = new URLSearchParams({
+                page: page.toString(),
+                limit: '20'
+            });
+            
+            if (currentSearch) params.append('search', currentSearch);
+            if (currentFilters.author) params.append('author', currentFilters.author);
+            if (currentFilters.yearStart) params.append('year_start', currentFilters.yearStart);
+            if (currentFilters.yearEnd) params.append('year_end', currentFilters.yearEnd);
+            if (currentFilters.sort) params.append('sort', currentFilters.sort);
+            
+            const response = await fetch(`/api/documents?${params}`);
+            if (!response.ok) throw new Error('Failed to load documents');
+            
+            const data = await response.json();
+            renderDocuments(data);
+            renderPagination(data);
+            
+            currentPage = page;
+        } catch (error) {
+            console.error('Error loading documents:', error);
+            showErrorMessage('Failed to load documents');
+        }
+    }
+    
+    function renderDocuments(data) {
+        documentsGrid.innerHTML = '';
+        
+        if (data.documents.length === 0) {
+            documentsGrid.innerHTML = '<p style="text-align: center; color: #64748B; padding: 40px;">No documents found matching your criteria.</p>';
+            return;
+        }
+        
+        data.documents.forEach(doc => {
+            const item = documentListTemplate.content.cloneNode(true);
+            
+            item.querySelector('.document-list-title').textContent = doc.title;
+            item.querySelector('.document-list-date').textContent = doc.published;
+            item.querySelector('.document-list-source').textContent = doc.source;
+            item.querySelector('.document-list-authors').textContent = doc.authors.join(', ') || 'No authors listed';
+            item.querySelector('.document-list-preview').textContent = doc.abstract_preview;
+            
+            // Add event listeners for buttons
+            const viewBtn = item.querySelector('.btn-view-document');
+            const similarBtn = item.querySelector('.btn-similar-documents');
+            
+            viewBtn.addEventListener('click', () => showDocumentDetail(doc.id));
+            similarBtn.addEventListener('click', () => showSimilarDocuments(doc.id));
+            
+            documentsGrid.appendChild(item);
+        });
+    }
+    
+    function renderPagination(data) {
+        paginationInfo.textContent = `Showing ${((data.page - 1) * data.limit) + 1}-${Math.min(data.page * data.limit, data.total)} of ${data.total} documents`;
+        
+        paginationControls.innerHTML = '';
+        
+        // Previous button
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = 'Previous';
+        prevBtn.disabled = data.page <= 1;
+        prevBtn.addEventListener('click', () => loadDocuments(data.page - 1));
+        paginationControls.appendChild(prevBtn);
+        
+        // Page numbers (show current and nearby pages)
+        const startPage = Math.max(1, data.page - 2);
+        const endPage = Math.min(data.total_pages, data.page + 2);
+        
+        for (let i = startPage; i <= endPage; i++) {
+            const pageBtn = document.createElement('button');
+            pageBtn.textContent = i.toString();
+            pageBtn.classList.toggle('active', i === data.page);
+            pageBtn.addEventListener('click', () => loadDocuments(i));
+            paginationControls.appendChild(pageBtn);
+        }
+        
+        // Next button
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = 'Next';
+        nextBtn.disabled = data.page >= data.total_pages;
+        nextBtn.addEventListener('click', () => loadDocuments(data.page + 1));
+        paginationControls.appendChild(nextBtn);
+    }
+    
+    function performExploreSearch() {
+        currentSearch = exploreSearchInput.value.trim();
+        currentFilters = {
+            author: authorFilter.value,
+            yearStart: yearStartFilter.value,
+            yearEnd: yearEndFilter.value,
+            sort: sortFilter.value
+        };
+        
+        loadDocuments(1); // Reset to first page
+    }
+    
+    async function showDocumentDetail(docId) {
+        try {
+            const response = await fetch(`/api/documents/${docId}`);
+            if (!response.ok) throw new Error('Failed to load document');
+            
+            const doc = await response.json();
+            
+            documentModalBody.innerHTML = `
+                <div class="document-detail">
+                    <h3>${doc.title}</h3>
+                    <div class="document-meta">
+                        <p><strong>Authors:</strong> ${doc.authors.join(', ') || 'Not specified'}</p>
+                        <p><strong>Published:</strong> ${doc.published}</p>
+                        <p><strong>Source:</strong> ${doc.source}</p>
+                        ${doc.link ? `<p><strong>Link:</strong> <a href="${doc.link}" target="_blank">${doc.link}</a></p>` : ''}
+                    </div>
+                    <div class="document-abstract">
+                        <h4>Abstract</h4>
+                        <p>${doc.abstract}</p>
+                    </div>
+                </div>
+            `;
+            
+            documentModal.classList.add('show');
+        } catch (error) {
+            console.error('Error loading document detail:', error);
+            showErrorMessage('Failed to load document details');
+        }
+    }
+    
+    async function showSimilarDocuments(docId) {
+        try {
+            const response = await fetch(`/api/documents/${docId}/similar`);
+            if (!response.ok) throw new Error('Failed to load similar documents');
+            
+            const similarDocs = await response.json();
+            
+            let content = '<h3>Similar Documents</h3>';
+            if (similarDocs.length === 0) {
+                content += '<p>No similar documents found.</p>';
+            } else {
+                content += '<div class="similar-documents-list">';
+                similarDocs.forEach(doc => {
+                    content += `
+                        <div class="similar-document-item" style="margin-bottom: 16px; padding: 16px; border: 1px solid #E2E8F0; border-radius: 6px;">
+                            <h4 style="margin: 0 0 8px 0;">${doc.title}</h4>
+                            <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748B;">
+                                ${doc.authors.join(', ')} • ${doc.published}
+                            </p>
+                            <p style="margin: 0; font-size: 14px; color: #475569;">${doc.abstract_preview}</p>
+                            <button onclick="showDocumentDetail(${doc.id})" style="margin-top: 8px; padding: 4px 8px; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;">View Details</button>
+                        </div>
+                    `;
+                });
+                content += '</div>';
+            }
+            
+            documentModalBody.innerHTML = content;
+            documentModal.classList.add('show');
+        } catch (error) {
+            console.error('Error loading similar documents:', error);
+            showErrorMessage('Failed to load similar documents');
+        }
+    }
+    
+    function closeDocumentModalHandler() {
+        documentModal.classList.remove('show');
+    }
+    
+    function showErrorMessage(message) {
+        // Simple error display - could be enhanced with a proper notification system
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #EF4444; color: white; padding: 12px 16px; border-radius: 6px; z-index: 1001;';
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        
+        setTimeout(() => {
+            document.body.removeChild(errorDiv);
+        }, 5000);
+    }
+    
+    // Initialize exploration if returning to that view
+    const savedView = localStorage.getItem('currentView');
+    if (savedView === 'explore') {
+        switchView('explore');
+    }
+    
+    // Make showDocumentDetail globally accessible for similar documents
+    window.showDocumentDetail = showDocumentDetail;
     
 });

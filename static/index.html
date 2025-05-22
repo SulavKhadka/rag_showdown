@@ -17,8 +17,15 @@
         <div class="sidebar config-sidebar" role="region" aria-label="Pipeline configuration">
             <div class="sidebar-header">
                 <h2 id="config-heading" class="site-title">RAG Pipeline Explorer</h2>
+                <!-- Navigation tabs -->
+                <div class="nav-tabs">
+                    <button class="nav-tab active" data-view="rag">Query & Search</button>
+                    <button class="nav-tab" data-view="explore">Explore Dataset</button>
+                </div>
             </div>
-            <div id="configPanel" class="config-panel" aria-labelledby="config-heading">
+            
+            <!-- RAG Config Panel (existing) -->
+            <div id="ragConfig" class="config-panel config-view" aria-labelledby="config-heading">
                 <!-- Query input at the top of sidebar -->
                 <div class="sidebar-query-container">
                     <div class="config-group-title">Query</div>
@@ -122,12 +129,67 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Exploration Config Panel (new) -->
+            <div id="exploreConfig" class="config-panel config-view hidden" aria-labelledby="config-heading">
+                <!-- Search and filter controls -->
+                <div class="sidebar-query-container">
+                    <div class="config-group-title">Search Documents</div>
+                    <div class="sidebar-query-field">
+                        <input type="text" id="exploreSearchInput" placeholder="Search titles, abstracts, authors...">
+                        <div class="query-buttons">
+                            <button id="exploreSearchButton" class="btn-submit">
+                                <i class="fas fa-search"></i>
+                                <span>Search</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="config-options">
+                    <!-- Filters Section -->
+                    <div class="config-group">
+                        <div class="config-group-title">Filters</div>
+                        <div class="config-filters">
+                            <div class="config-filter">
+                                <label for="authorFilter">Author</label>
+                                <select id="authorFilter">
+                                    <option value="">All Authors</option>
+                                    <!-- Authors will be populated dynamically -->
+                                </select>
+                            </div>
+                            <div class="config-filter">
+                                <label for="yearStartFilter">Year From</label>
+                                <input type="number" id="yearStartFilter" placeholder="e.g., 2020">
+                            </div>
+                            <div class="config-filter">
+                                <label for="yearEndFilter">Year To</label>
+                                <input type="number" id="yearEndFilter" placeholder="e.g., 2024">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sort Section -->
+                    <div class="config-group">
+                        <div class="config-group-title">Sort By</div>
+                        <div class="config-filters">
+                            <div class="config-filter">
+                                <select id="sortFilter">
+                                    <option value="date">Publication Date</option>
+                                    <option value="title">Title</option>
+                                    <option value="relevance">Relevance</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Main content area -->
         <div class="main-content">
-            <!-- Results area -->
-            <div class="results-panel">
+            <!-- RAG Results area (existing) -->
+            <div id="ragResults" class="results-panel view-content">
                 <div class="results-container" id="resultsContainer">
                     <div class="results-loading" id="loadingIndicator">
                         <div class="spinner"></div>
@@ -143,6 +205,37 @@
                         <h2>Sources</h2>
                         <div class="sources-container" id="sourcesContainer">
                             <!-- Sources will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Exploration Results area (new) -->
+            <div id="exploreResults" class="results-panel view-content hidden">
+                <div class="explore-container">
+                    <!-- Dataset Statistics -->
+                    <div class="stats-section" id="statsSection">
+                        <h2>Dataset Overview</h2>
+                        <div class="stats-grid" id="statsGrid">
+                            <!-- Stats cards will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Document Browser -->
+                    <div class="browser-section" id="browserSection">
+                        <div class="browser-header">
+                            <h2>Document Browser</h2>
+                            <div class="browser-controls">
+                                <div class="pagination-info" id="paginationInfo">
+                                    <!-- Pagination info will be displayed here -->
+                                </div>
+                                <div class="pagination-controls" id="paginationControls">
+                                    <!-- Pagination buttons will be displayed here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="documents-grid" id="documentsGrid">
+                            <!-- Document list will be populated here -->
                         </div>
                     </div>
                 </div>
@@ -203,6 +296,54 @@
             </div>
         </div>
     </template>
+
+    <!-- Template for stats card -->
+    <template id="statsCardTemplate">
+        <div class="stats-card">
+            <div class="stats-card-icon">
+                <i class="fas"></i>
+            </div>
+            <div class="stats-card-content">
+                <div class="stats-card-title"></div>
+                <div class="stats-card-value"></div>
+                <div class="stats-card-subtitle"></div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Template for document list item -->
+    <template id="documentListTemplate">
+        <div class="document-list-item">
+            <div class="document-list-header">
+                <h3 class="document-list-title"></h3>
+                <div class="document-list-meta">
+                    <span class="document-list-date"></span>
+                    <span class="document-list-source"></span>
+                </div>
+            </div>
+            <div class="document-list-authors"></div>
+            <div class="document-list-preview"></div>
+            <div class="document-list-actions">
+                <button class="btn-view-document">View Details</button>
+                <button class="btn-similar-documents">Similar Docs</button>
+            </div>
+        </div>
+    </template>
+
+    <!-- Document detail modal -->
+    <div id="documentModal" class="modal" aria-labelledby="document-modal-heading" aria-modal="true" role="dialog">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2 id="document-modal-heading">Document Details</h2>
+                <button id="closeDocumentModal" class="btn-close" title="Close document" aria-label="Close document">
+                    <i class="fas fa-times" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="documentModalBody">
+                <!-- Document details will be populated here -->
+            </div>
+        </div>
+    </div>
 
     <script src="/static/app.js"></script>
 </body>
