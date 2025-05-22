@@ -429,10 +429,22 @@ async def get_dataset_stats():
             "latest": date_range_result["max_date"]
         }
         
-        # Top authors by publication count - temporarily simplified
-        top_authors = [
-            {"name": "Multiple Authors", "count": total_docs},
-        ]
+        # Top authors by publication count - fixed query
+        try:
+            cursor.execute("""
+                SELECT value as author, COUNT(*) as count
+                FROM abstracts, json_each(authors)
+                WHERE json_valid(authors)
+                GROUP BY value
+                ORDER BY count DESC
+                LIMIT 10
+            """)
+            top_authors_rows = cursor.fetchall()
+            top_authors = [{"name": row["author"], "count": row["count"]} 
+                          for row in top_authors_rows]
+        except Exception as e:
+            logger.error(f"Error getting top authors: {str(e)}")
+            top_authors = []
         
         # Source distribution
         cursor.execute("""
@@ -468,8 +480,21 @@ async def get_authors():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Temporarily return empty authors list - will fix JSON parsing later
-        authors = []
+        # Return authors list for filtering - fixed query
+        try:
+            cursor.execute("""
+                SELECT value as author, COUNT(*) as count
+                FROM abstracts, json_each(authors)
+                WHERE json_valid(authors)
+                GROUP BY value
+                ORDER BY author
+            """)
+            
+            authors = [AuthorInfo(name=row["author"], count=row["count"]) 
+                      for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error querying authors: {str(e)}")
+            authors = []
         
         conn.close()
         return authors
@@ -502,7 +527,7 @@ async def get_documents(
             params.append(search)
         
         if author:
-            where_conditions.append("json_valid(authors) AND EXISTS (SELECT 1 FROM json_each(authors) WHERE value = ?)")
+            where_conditions.append("EXISTS (SELECT 1 FROM json_each(authors) WHERE value = ?)")
             params.append(author)
         
         if year_start:
