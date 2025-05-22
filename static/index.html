@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Pipeline Explorer</title>
+    <title>RAG Explorer</title>
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Add Inter font -->
@@ -16,7 +16,7 @@
         <!-- Left sidebar for configuration (non-collapsible) -->
         <div class="sidebar config-sidebar" role="region" aria-label="Pipeline configuration">
             <div class="sidebar-header">
-                <h2 id="config-heading" class="site-title">RAG Pipeline Explorer</h2>
+                <h2 id="config-heading" class="site-title">RAG Explorer</h2>
                 <!-- Navigation tabs -->
                 <div class="nav-tabs">
                     <button class="nav-tab active" data-view="rag">Query & Search</button>
@@ -158,13 +158,13 @@
                                     <!-- Authors will be populated dynamically -->
                                 </select>
                             </div>
-                            <div class="config-filter">
-                                <label for="yearStartFilter">Year From</label>
-                                <input type="number" id="yearStartFilter" placeholder="e.g., 2020">
-                            </div>
-                            <div class="config-filter">
-                                <label for="yearEndFilter">Year To</label>
-                                <input type="number" id="yearEndFilter" placeholder="e.g., 2024">
+                            <div class="config-filter year-range">
+                                <label>Year Range</label>
+                                <div class="year-inputs">
+                                    <input type="number" id="yearStartFilter" placeholder="From">
+                                    <span class="year-separator">–</span>
+                                    <input type="number" id="yearEndFilter" placeholder="To">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -181,6 +181,14 @@
                                 </select>
                             </div>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- Dataset Overview -->
+                <div class="dataset-overview" id="datasetOverview">
+                    <div class="overview-title">Dataset Info</div>
+                    <div class="overview-stats" id="overviewStats">
+                        <!-- Basic stats will be populated here -->
                     </div>
                 </div>
             </div>
@@ -213,18 +221,10 @@
             <!-- Exploration Results area (new) -->
             <div id="exploreResults" class="results-panel view-content hidden">
                 <div class="explore-container">
-                    <!-- Dataset Statistics -->
-                    <div class="stats-section" id="statsSection">
-                        <h2>Dataset Overview</h2>
-                        <div class="stats-grid" id="statsGrid">
-                            <!-- Stats cards will be populated here -->
-                        </div>
-                    </div>
-                    
                     <!-- Document Browser -->
                     <div class="browser-section" id="browserSection">
                         <div class="browser-header">
-                            <h2>Document Browser</h2>
+                            <div class="browser-title">Documents</div>
                             <div class="browser-controls">
                                 <div class="pagination-info" id="paginationInfo">
                                     <!-- Pagination info will be displayed here -->

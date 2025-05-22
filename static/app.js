@@ -874,49 +874,40 @@ function adjustLayoutHeights() {
     }
     
     function renderStats(stats) {
-        statsGrid.innerHTML = '';
+        const overviewStats = document.getElementById('overviewStats');
         
         // Handle undefined stats
         if (!stats) {
-            statsGrid.innerHTML = '<p>Unable to load statistics</p>';
+            overviewStats.innerHTML = '<p>Unable to load statistics</p>';
             return;
         }
         
-        const statsData = [
+        // Create compact stats for sidebar
+        const compactStats = [
             {
-                icon: 'fa-file-alt',
-                title: 'Total Documents',
-                value: (stats.total_documents || 0).toLocaleString(),
-                subtitle: 'Scientific abstracts'
+                label: 'Documents',
+                value: (stats.total_documents || 0).toLocaleString()
             },
             {
-                icon: 'fa-calendar',
-                title: 'Date Range',
-                value: `${stats.date_range?.earliest?.slice(0, 4) || 'N/A'} - ${stats.date_range?.latest?.slice(0, 4) || 'N/A'}`,
-                subtitle: 'Publication years'
+                label: 'Authors',
+                value: (stats.top_authors?.length || 0).toLocaleString()
             },
             {
-                icon: 'fa-user',
-                title: 'Top Author',
-                value: stats.top_authors?.[0]?.name || 'N/A',
-                subtitle: `${stats.top_authors?.[0]?.count || 0} publications`
+                label: 'Date Range',
+                value: `${stats.date_range?.earliest?.slice(0, 4) || 'N/A'} - ${stats.date_range?.latest?.slice(0, 4) || 'N/A'}`
             },
             {
-                icon: 'fa-ruler',
-                title: 'Avg. Length',
-                value: `${Math.round(stats.avg_abstract_length || 0)} chars`,
-                subtitle: 'Abstract length'
+                label: 'Avg Length',
+                value: `${Math.round(stats.avg_abstract_length || 0)} chars`
             }
         ];
         
-        statsData.forEach(stat => {
-            const card = statsCardTemplate.content.cloneNode(true);
-            card.querySelector('.stats-card-icon i').className = `fas ${stat.icon}`;
-            card.querySelector('.stats-card-title').textContent = stat.title;
-            card.querySelector('.stats-card-value').textContent = stat.value;
-            card.querySelector('.stats-card-subtitle').textContent = stat.subtitle;
-            statsGrid.appendChild(card);
-        });
+        overviewStats.innerHTML = compactStats.map(stat => `
+            <div class="overview-stat">
+                <div class="overview-stat-label">${stat.label}</div>
+                <div class="overview-stat-value">${stat.value}</div>
+            </div>
+        `).join('');
     }
     
     async function loadAuthors() {
