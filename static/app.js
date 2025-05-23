@@ -31,19 +31,44 @@ document.addEventListener('DOMContentLoaded', () => {
     const historyItemTemplate = document.getElementById('historyItemTemplate');
     const documentTemplate = document.getElementById('documentTemplate');
     
+    // Authentication elements
+    const loginForm = document.getElementById('loginForm');
+    const authStatus = document.getElementById('authStatus');
+    const welcomeText = document.getElementById('welcomeText');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    
     // State management
     let queryHistory = loadHistory();
+    let authToken = localStorage.getItem('authToken');
+    let currentUser = null;
     
     // Initialize UI
     initializeUI();
     renderHistory();
     loadSidebarState();
+    checkAuthStatus();
     
     // Event listeners
     topKSlider.addEventListener('input', updateTopKValue);
     minSimilaritySlider.addEventListener('input', updateMinSimilarityValue);
     submitQueryBtn.addEventListener('click', handleQuerySubmit);
     clearHistoryBtn.addEventListener('click', clearHistory);
+    
+    // Authentication event listeners
+    loginBtn.addEventListener('click', handleLogin);
+    registerBtn.addEventListener('click', handleRegister);
+    logoutBtn.addEventListener('click', handleLogout);
+    
+    // Enter key support for login form
+    passwordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleLogin();
+        }
+    });
     
     // History modal event listeners
     historyButton.addEventListener('click', openHistoryModal);
@@ -289,10 +314,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Send query to backend API
     async function sendQuery(query, config) {
+        if (!authToken) {
+            throw new Error('You must be logged in to submit queries');
+        }
+        
         const response = await fetch('/api/query', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
                 query,
@@ -1157,6 +1187,164 @@ function adjustLayoutHeights() {
     const savedView = localStorage.getItem('currentView');
     if (savedView === 'explore') {
         switchView('explore');
+    }
+    
+    // Authentication Functions
+    async function checkAuthStatus() {
+        if (authToken) {
+            try {
+                const response = await fetch('/api/auth/me', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    currentUser = await response.json();
+                    updateAuthUI(true);
+                } else {
+                    // Token invalid, clear it
+                    localStorage.removeItem('authToken');
+                    authToken = null;
+                    updateAuthUI(false);
+                }
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                updateAuthUI(false);
+            }
+        } else {
+            updateAuthUI(false);
+        }
+    }
+    
+    function updateAuthUI(isAuthenticated) {
+        if (isAuthenticated && currentUser) {
+            loginForm.classList.add('hidden');
+            authStatus.classList.remove('hidden');
+            welcomeText.textContent = `Welcome, ${currentUser.username}`;
+        } else {
+            loginForm.classList.remove('hidden');
+            authStatus.classList.add('hidden');
+            currentUser = null;
+        }
+    }
+    
+    async function handleLogin() {
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        
+        if (!username || !password) {
+            showError('Please enter both username and password');
+            return;
+        }
+        
+        try {
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Logging in...';
+            
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('authToken', authToken);
+                updateAuthUI(true);
+                
+                // Clear form
+                usernameInput.value = '';
+                passwordInput.value = '';
+                
+                showSuccess('Login successful!');
+            } else {
+                const error = await response.json();
+                showError(error.detail || 'Login failed');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            showError('Login failed. Please try again.');
+        } finally {
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Login';
+        }
+    }
+    
+    async function handleRegister() {
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        
+        if (!username || !password) {
+            showError('Please enter both username and password');
+            return;
+        }
+        
+        if (password.length < 6) {
+            showError('Password must be at least 6 characters long');
+            return;
+        }
+        
+        try {
+            registerBtn.disabled = true;
+            registerBtn.textContent = 'Registering...';
+            
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('authToken', authToken);
+                updateAuthUI(true);
+                
+                // Clear form
+                usernameInput.value = '';
+                passwordInput.value = '';
+                
+                showSuccess('Registration successful!');
+            } else {
+                const error = await response.json();
+                showError(error.detail || 'Registration failed');
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            showError('Registration failed. Please try again.');
+        } finally {
+            registerBtn.disabled = false;
+            registerBtn.textContent = 'Register';
+        }
+    }
+    
+    function handleLogout() {
+        authToken = null;
+        currentUser = null;
+        localStorage.removeItem('authToken');
+        updateAuthUI(false);
+        showSuccess('Logged out successfully');
+    }
+    
+    function showSuccess(message) {
+        const successDiv = document.createElement('div');
+        successDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10B981; color: white; padding: 12px 16px; border-radius: 6px; z-index: 1001;';
+        successDiv.textContent = message;
+        document.body.appendChild(successDiv);
+        
+        setTimeout(() => {
+            if (document.body.contains(successDiv)) {
+                document.body.removeChild(successDiv);
+            }
+        }, 3000);
     }
     
     // Make showDocumentDetail globally accessible for similar documents

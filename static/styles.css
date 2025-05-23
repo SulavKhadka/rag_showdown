@@ -1451,3 +1451,97 @@ input:disabled + .toggle-slider {
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
+
+/* Authentication Styles */
+.auth-section {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: rgba(241, 245, 249, 0.6);
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
+}
+
+.auth-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.welcome-text {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+}
+
+.login-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.login-form input {
+    padding: 8px 12px;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    font-size: 13px;
+    background: white;
+    transition: border-color 0.2s ease;
+}
+
+.login-form input:focus {
+    outline: none;
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.auth-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-login, .btn-register, .btn-logout {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 1;
+}
+
+.btn-login {
+    background: #3B82F6;
+    color: white;
+}
+
+.btn-login:hover {
+    background: #2563EB;
+}
+
+.btn-register {
+    background: #F1F5F9;
+    color: #475569;
+    border: 1px solid #CBD5E1;
+}
+
+.btn-register:hover {
+    background: #E2E8F0;
+}
+
+.btn-logout {
+    background: #EF4444;
+    color: white;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+.btn-logout:hover {
+    background: #DC2626;
+}
+
+.hidden {
+    display: none !important;
+}
