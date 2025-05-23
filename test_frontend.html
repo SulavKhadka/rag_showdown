@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Testing Dataset Exploration APIs</h1>
+    <div id="results"></div>
+
+    <script>
+        async function testAPIs() {
+            const results = document.getElementById('results');
+            
+            try {
+                // Test stats
+                console.log('Testing stats...');
+                const statsResponse = await fetch('/api/dataset/stats');
+                const stats = await statsResponse.json();
+                results.innerHTML += `<h2>Stats</h2><pre>${JSON.stringify(stats, null, 2)}</pre>`;
+                
+                // Test documents
+                console.log('Testing documents...');
+                const docsResponse = await fetch('/api/documents?page=1&limit=3');
+                const docs = await docsResponse.json();
+                results.innerHTML += `<h2>Documents</h2><pre>${JSON.stringify(docs, null, 2)}</pre>`;
+                
+            } catch (error) {
+                results.innerHTML += `<p>Error: ${error.message}</p>`;
+                console.error('Test error:', error);
+            }
+        }
+        
+        // Run tests when page loads
+        window.addEventListener('load', testAPIs);
+    </script>
+</body>
+</html>

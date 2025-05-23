@@ -235,7 +235,8 @@ button {
 
 /* Sidebar styles */
 .sidebar {
-    width: 260px;
+    width: 20%;
+    min-width: 260px;
     background-color: #F1F5F9; /* Updated background color */
     border-right: 1px solid #E2E8F0; /* Updated border color */
     overflow-y: auto;
@@ -390,6 +391,21 @@ button {
 .year-separator {
     color: #64748B;
     font-weight: 500;
+}
+
+.btn-apply-filter {
+    background-color: #3B82F6;
+    color: white;
+    border-radius: 4px;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.btn-apply-filter:hover {
+    background-color: #2563EB;
 }
 
 /* Configuration panel */
@@ -897,13 +913,15 @@ input:disabled + .toggle-slider {
 /* Responsive adjustments */
 @media (max-width: 1200px) {
     .sidebar {
-        width: 280px;
+        width: 25%;
+        min-width: 240px;
     }
 }
 
 @media (max-width: 992px) {
     .sidebar {
-        width: 240px;
+        width: 30%;
+        min-width: 220px;
     }
     
     .sources-section {
@@ -1412,4 +1430,24 @@ input:disabled + .toggle-slider {
         font-size: 11px;
         padding: 6px 8px;
     }
+}
+
+/* Search loading indicator in document grid */
+.search-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #64748B;
+    gap: 16px;
+}
+
+.search-loading .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(203, 213, 225, 0.3);
+    border-left-color: #3B82F6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
 }

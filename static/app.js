@@ -798,6 +798,16 @@ function adjustLayoutHeights() {
         tab.addEventListener('click', () => switchView(tab.dataset.view));
     });
     
+    // Debounce function to limit how often a function can be called
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            const context = this;
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(context, args), wait);
+        };
+    }
+    
     // Exploration search and filter event listeners
     exploreSearchButton.addEventListener('click', performExploreSearch);
     exploreSearchInput.addEventListener('keypress', (e) => {
@@ -805,8 +815,21 @@ function adjustLayoutHeights() {
     });
     
     authorFilter.addEventListener('change', performExploreSearch);
-    yearStartFilter.addEventListener('input', performExploreSearch);
-    yearEndFilter.addEventListener('input', performExploreSearch);
+    
+    // Apply debounce to year filters with 300ms delay
+    const debouncedSearch = debounce(performExploreSearch, 300);
+    yearStartFilter.addEventListener('input', debouncedSearch);
+    yearEndFilter.addEventListener('input', debouncedSearch);
+    
+    // Add keyboard support for immediate search on Enter key
+    yearStartFilter.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') performExploreSearch();
+    });
+    
+    yearEndFilter.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') performExploreSearch();
+    });
+    
     sortFilter.addEventListener('change', performExploreSearch);
     
     // Document modal event listeners
@@ -1034,7 +1057,11 @@ function adjustLayoutHeights() {
         paginationControls.appendChild(nextBtn);
     }
     
-    function performExploreSearch() {
+    // Perform document search with filters
+    async function performExploreSearch() {
+        // Show loading state in documents grid
+        documentsGrid.innerHTML = '<div class="search-loading"><div class="spinner"></div><p>Loading documents...</p></div>';
+        
         currentSearch = exploreSearchInput.value.trim();
         currentFilters = {
             author: authorFilter.value,
@@ -1043,7 +1070,7 @@ function adjustLayoutHeights() {
             sort: sortFilter.value
         };
         
-        loadDocuments(1); // Reset to first page
+        await loadDocuments(1); // Reset to first page
     }
     
     async function showDocumentDetail(docId) {

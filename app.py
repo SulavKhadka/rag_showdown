@@ -3,7 +3,8 @@ import json
 import platform
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request, Query, Depends, status
+from fastapi.security import HTTPBearer
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -13,6 +14,14 @@ import logging
 import uvicorn
 import datetime
 import uuid
+from datetime import timedelta
+
+# Authentication imports
+from auth import (
+    init_auth_db, authenticate_user, create_user, create_access_token,
+    get_current_active_user, get_user_from_request,
+    User, UserCreate, UserLogin
+)
 import sys
 import psutil
 import sqlite3
@@ -169,10 +178,24 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Initialize Limiter
-limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
+# Custom rate limiting key function
+def get_rate_limit_key(request: Request):
+    """Get rate limiting key - use username if authenticated, else IP"""
+    username = get_user_from_request(request)
+    if username:
+        return f"user:{username}"
+    return f"ip:{get_remote_address(request)}"
+
+# Initialize Limiter with user-aware rate limiting
+limiter = Limiter(key_func=get_rate_limit_key, default_limits=["30/minute"])  # Higher limit for authenticated users
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Initialize authentication on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize authentication database on startup"""
+    init_auth_db(DEFAULT_DB_PATH)
 
 def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
     """
@@ -197,15 +220,7 @@ def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
         data["query_id"] = query_id
         
         # Add system information
-        data["system_info"] = {
-            "platform": platform.platform(),
-            "python_version": platform.python_version(),
-            "processor": platform.processor(),
-            "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
-            "memory_available_gb": round(psutil.virtual_memory().available / (1024**3), 2),
-            "cpu_count": psutil.cpu_count(logical=False),
-            "logical_cpu_count": psutil.cpu_count(logical=True)
-        }
+        # System info removed for security
         
         # Write data to file
         with open(filepath, 'w') as f:
@@ -304,8 +319,8 @@ async def index():
     return FileResponse("static/index.html")
 
 @app.post("/api/query", response_model=QueryResponse)
-@limiter.limit("5/minute")
-async def process_query(request: Request, query_request: QueryRequest):
+@limiter.limit("10/minute")  # Increased limit for authenticated users
+async def process_query(request: Request, query_request: QueryRequest, current_user: User = Depends(get_current_active_user)):
     """
     Process a RAG query with specified configuration.
     """
@@ -376,6 +391,46 @@ async def process_query(request: Request, query_request: QueryRequest):
         }
         log_query_data(f"{query_id}_error", error_data)
         raise HTTPException(status_code=500, detail="An internal server error occurred while processing your query.")
+
+# Authentication endpoints
+@app.post("/api/auth/register")
+async def register(user_data: UserCreate):
+    """Register a new user"""
+    try:
+        user = create_user(user_data, DEFAULT_DB_PATH)
+        access_token = create_access_token(data={"sub": user.username})
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {"username": user.username, "email": user.email}
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during registration: {str(e)}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+@app.post("/api/auth/login")
+async def login(user_data: UserLogin):
+    """Login and get access token"""
+    user = authenticate_user(user_data.username, user_data.password, DEFAULT_DB_PATH)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.username})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {"username": user.username, "email": user.email}
+    }
+
+@app.get("/api/auth/me")
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Get current user information"""
+    return {"username": current_user.username, "email": current_user.email}
 
 @app.get("/api/config/presets", response_model=List[PresetInfo])
 async def get_presets():
