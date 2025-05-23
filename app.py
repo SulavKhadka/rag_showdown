@@ -178,7 +178,7 @@ app = FastAPI(
 add_security_middleware(app)
 
 # Initialize Limiter with IP-based rate limiting
-limiter = Limiter(key_func=get_remote_address, default_limits=["20/minute"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["25/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
