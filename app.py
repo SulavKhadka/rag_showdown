@@ -98,10 +98,9 @@ class PipelineConfigModel(BaseModel):
     use_query_decomposition: Optional[bool] = Field(default=False, description="Use LLM-based query decomposition")
     top_k: Optional[int] = Field(default=5, description="Number of documents to retrieve", ge=1, le=20)
     min_similarity_pct: Optional[float] = Field(default=50.0, description="Vector search filter threshold", ge=0.0, le=100.0)
-    db_path: Optional[str] = Field(default=DEFAULT_DB_PATH, description="Path to SQLite database")
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., description="The query text to process")
+    query: str = Field(..., min_length=1, max_length=2000, description="The query text to process")
     config: PipelineConfigModel = Field(default_factory=PipelineConfigModel, description="Pipeline configuration")
 
 class DocumentModel(BaseModel):
@@ -127,7 +126,6 @@ class PresetInfo(BaseModel):
 
 class DBStatus(BaseModel):
     exists: bool
-    path: str
 
 class DatasetStats(BaseModel):
     total_documents: int
@@ -282,11 +280,10 @@ def get_pipeline(config_dict: Dict[str, Any]) -> ConfigurableRAGRetriever:
     
     # Create a new pipeline instance
     logger.info(f"Creating new pipeline with config: {config}")
-    db_path = config_dict.get('db_path', DEFAULT_DB_PATH)
     
     try:
         pipeline = ConfigurableRAGRetriever(
-            db_path=db_path, 
+            db_path=DEFAULT_DB_PATH, 
             config=config,
             logger=logger
         )
@@ -399,12 +396,11 @@ async def get_presets():
 @app.get("/api/db_status", response_model=DBStatus)
 async def db_status():
     """Check if the default database file exists and return status"""
-    logger.debug(f"Checking database status at: {DEFAULT_DB_PATH}")
+    logger.debug(f"Checking database status")
     exists = os.path.exists(DEFAULT_DB_PATH)
-    logger.info(f"Database at {DEFAULT_DB_PATH} exists: {exists}")
+    logger.info(f"Database exists: {exists}")
     return {
-        "exists": exists,
-        "path": DEFAULT_DB_PATH
+        "exists": exists
     }
 
 @app.get("/api/dataset/stats", response_model=DatasetStats)
@@ -504,12 +500,12 @@ async def get_authors():
 
 @app.get("/api/documents", response_model=DocumentListResponse)
 async def get_documents(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=1000),
     limit: int = Query(20, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    author: Optional[str] = Query(None),
-    year_start: Optional[int] = Query(None),
-    year_end: Optional[int] = Query(None),
+    search: Optional[str] = Query(None, max_length=500),
+    author: Optional[str] = Query(None, max_length=200),
+    year_start: Optional[int] = Query(None, ge=1900, le=2030),
+    year_end: Optional[int] = Query(None, ge=1900, le=2030),
     sort: str = Query("date", pattern="^(date|title|relevance)$")
 ):
     """Get paginated list of documents with optional filtering and search"""
