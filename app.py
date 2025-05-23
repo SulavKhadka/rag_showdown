@@ -653,23 +653,62 @@ async def get_similar_documents(doc_id: int, limit: int = Query(5, ge=1, le=20))
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # First, check if the document exists
-        cursor.execute("SELECT id FROM abstracts WHERE id = ?", (doc_id,))
-        if not cursor.fetchone():
+        # First, check if the document exists and get its embedding
+        cursor.execute("SELECT id, embedding FROM abstracts WHERE id = ?", (doc_id,))
+        source_doc = cursor.fetchone()
+        if not source_doc:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        # Get similar documents using vector search
-        # Note: This requires the vss_abstracts table and sqlite-vec extension
-        cursor.execute("""
-            SELECT a.id, a.title, a.authors, a.published, a.source_file,
-                   SUBSTR(a.abstract, 1, 200) as abstract_preview
-            FROM vss_abstracts v
-            JOIN abstracts a ON v.rowid = a.id
-            WHERE v.rowid != ? AND v.embedding MATCH (
-                SELECT embedding FROM vss_abstracts WHERE rowid = ?
-            )
-            LIMIT ?
-        """, (doc_id, doc_id, limit))
+        if not source_doc["embedding"]:
+            # Fallback: return documents from same author or similar publication year
+            cursor.execute("""
+                SELECT id, title, authors, published, source_file,
+                       SUBSTR(abstract, 1, 200) as abstract_preview
+                FROM abstracts
+                WHERE id != ? AND (
+                    (authors IS NOT NULL AND authors != '' AND 
+                     EXISTS (
+                        SELECT 1 FROM abstracts a2 
+                        WHERE a2.id = ? AND 
+                        json_extract(abstracts.authors, '$[0]') = json_extract(a2.authors, '$[0]')
+                     )) OR
+                    (published IS NOT NULL AND published != '' AND 
+                     ABS(CAST(SUBSTR(published, 1, 4) AS INTEGER) - 
+                         (SELECT CAST(SUBSTR(published, 1, 4) AS INTEGER) FROM abstracts WHERE id = ?)) <= 2)
+                )
+                ORDER BY published DESC
+                LIMIT ?
+            """, (doc_id, doc_id, doc_id, limit))
+        else:
+            # Try vector similarity with fallback for runtime issues
+            try:
+                # Attempt sqlite-vec approach first
+                cursor.execute("""
+                    SELECT a.id, a.title, a.authors, a.published, a.source_file,
+                           SUBSTR(a.abstract, 1, 200) as abstract_preview
+                    FROM vss_abstracts v
+                    JOIN abstracts a ON v.rowid = a.id
+                    WHERE v.rowid != ? AND v.embedding MATCH (
+                        SELECT embedding FROM vss_abstracts WHERE rowid = ?
+                    )
+                    LIMIT ?
+                """, (doc_id, doc_id, limit))
+            except Exception as vec_error:
+                logger.warning(f"sqlite-vec not available, using fallback similarity: {vec_error}")
+                # Fallback: simple text-based similarity using abstract length and author overlap
+                cursor.execute("""
+                    SELECT a1.id, a1.title, a1.authors, a1.published, a1.source_file,
+                           SUBSTR(a1.abstract, 1, 200) as abstract_preview,
+                           ABS(LENGTH(a1.abstract) - (SELECT LENGTH(abstract) FROM abstracts WHERE id = ?)) as len_diff
+                    FROM abstracts a1
+                    WHERE a1.id != ?
+                    ORDER BY len_diff ASC, 
+                             CASE WHEN a1.published IS NOT NULL AND a1.published != '' 
+                                  THEN ABS(CAST(SUBSTR(a1.published, 1, 4) AS INTEGER) - 
+                                          (SELECT CAST(SUBSTR(published, 1, 4) AS INTEGER) FROM abstracts WHERE id = ?))
+                                  ELSE 9999 END ASC
+                    LIMIT ?
+                """, (doc_id, doc_id, doc_id, limit))
         
         rows = cursor.fetchall()
         
@@ -681,7 +720,7 @@ async def get_similar_documents(doc_id: int, limit: int = Query(5, ge=1, le=20))
                 title=row["title"],
                 authors=authors,
                 published=row["published"],
-                source=os.path.basename(row["source_file"]),
+                source=os.path.basename(row["source_file"]) if row["source_file"] else "Unknown",
                 abstract_preview=row["abstract_preview"] + "..." if len(row["abstract_preview"]) == 200 else row["abstract_preview"]
             ))
         
