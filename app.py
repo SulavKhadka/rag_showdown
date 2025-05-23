@@ -22,6 +22,9 @@ from auth import (
     get_current_active_user, get_user_from_request,
     User, UserCreate, UserLogin
 )
+
+# Security middleware
+from security_middleware import add_security_middleware
 import sys
 import psutil
 import sqlite3
@@ -178,6 +181,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add security middleware
+add_security_middleware(app)
+
 # Custom rate limiting key function
 def get_rate_limit_key(request: Request):
     """Get rate limiting key - use username if authenticated, else IP"""
@@ -190,6 +196,14 @@ def get_rate_limit_key(request: Request):
 limiter = Limiter(key_func=get_rate_limit_key, default_limits=["30/minute"])  # Higher limit for authenticated users
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Custom rate limit for unauthenticated users
+def get_unauthenticated_rate_limit(request: Request):
+    """Return different rate limits for authenticated vs unauthenticated users"""
+    username = get_user_from_request(request)
+    if username:
+        return "30/minute"  # Higher limit for authenticated users
+    return "5/minute"   # Lower limit for unauthenticated users
 
 # Initialize authentication on startup
 @app.on_event("startup")
@@ -394,7 +408,8 @@ async def process_query(request: Request, query_request: QueryRequest, current_u
 
 # Authentication endpoints
 @app.post("/api/auth/register")
-async def register(user_data: UserCreate):
+@limiter.limit("3/minute")  # Strict limit for registration
+async def register(request: Request, user_data: UserCreate):
     """Register a new user"""
     try:
         user = create_user(user_data, DEFAULT_DB_PATH)
@@ -411,7 +426,8 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=500, detail="Registration failed")
 
 @app.post("/api/auth/login")
-async def login(user_data: UserLogin):
+@limiter.limit("5/minute")  # Strict limit for login to prevent brute force
+async def login(request: Request, user_data: UserLogin):
     """Login and get access token"""
     user = authenticate_user(user_data.username, user_data.password, DEFAULT_DB_PATH)
     if not user:
