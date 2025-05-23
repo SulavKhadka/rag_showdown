@@ -16,7 +16,7 @@ def add_security_middleware(app: FastAPI):
     """Add security middleware to the FastAPI application."""
     
     # Get allowed origins from environment variable
-    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5000,http://0.0.0.0:5000").split(",")
     allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
     
     # Add CORS middleware

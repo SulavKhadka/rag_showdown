@@ -16,13 +16,6 @@ import datetime
 import uuid
 from datetime import timedelta
 
-# Authentication imports
-from auth import (
-    init_auth_db, authenticate_user, create_user, create_access_token,
-    get_current_active_user, get_user_from_request,
-    User, UserCreate, UserLogin
-)
-
 # Security middleware
 from security_middleware import add_security_middleware
 import sys
@@ -184,32 +177,11 @@ app = FastAPI(
 # Add security middleware
 add_security_middleware(app)
 
-# Custom rate limiting key function
-def get_rate_limit_key(request: Request):
-    """Get rate limiting key - use username if authenticated, else IP"""
-    username = get_user_from_request(request)
-    if username:
-        return f"user:{username}"
-    return f"ip:{get_remote_address(request)}"
-
-# Initialize Limiter with user-aware rate limiting
-limiter = Limiter(key_func=get_rate_limit_key, default_limits=["30/minute"])  # Higher limit for authenticated users
+# Initialize Limiter with IP-based rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["20/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Custom rate limit for unauthenticated users
-def get_unauthenticated_rate_limit(request: Request):
-    """Return different rate limits for authenticated vs unauthenticated users"""
-    username = get_user_from_request(request)
-    if username:
-        return "30/minute"  # Higher limit for authenticated users
-    return "5/minute"   # Lower limit for unauthenticated users
-
-# Initialize authentication on startup
-@app.on_event("startup")
-async def startup_event():
-    """Initialize authentication database on startup"""
-    init_auth_db(DEFAULT_DB_PATH)
 
 def log_query_data(query_id: str, data: Dict[str, Any]) -> None:
     """
@@ -333,8 +305,8 @@ async def index():
     return FileResponse("static/index.html")
 
 @app.post("/api/query", response_model=QueryResponse)
-@limiter.limit("10/minute")  # Increased limit for authenticated users
-async def process_query(request: Request, query_request: QueryRequest, current_user: User = Depends(get_current_active_user)):
+@limiter.limit("10/minute")
+async def process_query(request: Request, query_request: QueryRequest):
     """
     Process a RAG query with specified configuration.
     """
@@ -405,48 +377,6 @@ async def process_query(request: Request, query_request: QueryRequest, current_u
         }
         log_query_data(f"{query_id}_error", error_data)
         raise HTTPException(status_code=500, detail="An internal server error occurred while processing your query.")
-
-# Authentication endpoints
-@app.post("/api/auth/register")
-@limiter.limit("3/minute")  # Strict limit for registration
-async def register(request: Request, user_data: UserCreate):
-    """Register a new user"""
-    try:
-        user = create_user(user_data, DEFAULT_DB_PATH)
-        access_token = create_access_token(data={"sub": user.username})
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {"username": user.username, "email": user.email}
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error during registration: {str(e)}")
-        raise HTTPException(status_code=500, detail="Registration failed")
-
-@app.post("/api/auth/login")
-@limiter.limit("5/minute")  # Strict limit for login to prevent brute force
-async def login(request: Request, user_data: UserLogin):
-    """Login and get access token"""
-    user = authenticate_user(user_data.username, user_data.password, DEFAULT_DB_PATH)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": user.username})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {"username": user.username, "email": user.email}
-    }
-
-@app.get("/api/auth/me")
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    """Get current user information"""
-    return {"username": current_user.username, "email": current_user.email}
 
 @app.get("/api/config/presets", response_model=List[PresetInfo])
 async def get_presets():
